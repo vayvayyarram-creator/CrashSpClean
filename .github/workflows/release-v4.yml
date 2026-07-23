@@ -1,4 +1,4 @@
-name: Moon Release v2.1
+name: Moon Release Workflow
 
 on:
   push:
