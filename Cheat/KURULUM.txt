@@ -1,0 +1,73 @@
+========================================================
+  SPOTIFY SIDELOAD KURULUM TALIMATLARI
+========================================================
+
+1. VISUAL STUDIO PROJE AYARLARI
+────────────────────────────────
+  Proje Ozellikleri → General:
+    Configuration Type:  Dynamic Library (.dll)
+
+  Proje Ozellikleri → Linker → General:
+    Output File:  $(OutDir)version.dll
+
+  Proje Ozellikleri → Linker → System:
+    SubSystem:  Windows (/SUBSYSTEM:WINDOWS)
+
+  Proje Ozellikleri → General → Entry Point:  (bos birak)
+
+  NOT: "WinMain" entry point tanimlamasi kaldirildi.
+       DllMain otomatik giriş noktasidir.
+
+2. PROJE'YE DOSYA EKLE
+───────────────────────
+  Projede halihazirda Source.cpp varsa:
+    - ProxyExports.cpp'yi projeye ekle (Add Existing Item)
+
+3. DERLEME
+───────────
+  Release x64 mod'unda derle.
+  Cikan dosya: version.dll
+
+4. KURULUM (NEREYE KOY)
+────────────────────────
+  Spotify klasoru (tipik konum):
+    %APPDATA%\Spotify\
+    Ornek: C:\Users\<kullanici>\AppData\Roaming\Spotify\
+
+  version.dll dosyasini o klasore koy.
+
+5. KULLANIM
+────────────
+  a) Spotify'i kapat (tamamen, tray'den de)
+  b) version.dll'i Spotify klasorune koy
+  c) Spotify'i ac
+  d) FiveM'i ac → GTA5 yuklenince hile otomatik devreye girer
+  e) Insert/Home tusu ile menu ac (overlay)
+
+6. NASIL CALISIR
+─────────────────
+  - Windows, Spotify'i acinca once kendi klasorunde DLL arar
+  - version.dll'i bulur → bizim DLL'imizi yukler
+  - DllMain → CheatThread baslar (arka planda, sessizce)
+  - CheatThread: GTA5 penceresi acilana kadar bekler
+  - GTA5 acilinca normal sekilde baglanti kurar
+  - Overlay kendi penceresi olarak acilir
+  - Task Manager'da sadece Spotify.exe gorulur
+  - Anti-cheat: "Spotify GTA5 memory'sine bakiyor" → guvenilir
+
+7. ANTI-CHEAT NASIL ATLATIR
+─────────────────────────────
+  EasyAntiCheat / FiveM anti-cheat su kontrolu yapar:
+    - GTA5'e handle acan process'leri listeler
+    - Bu process'lerin isimlerini ve imzalarini kontrol eder
+    - Spotify -> Beyaz Liste (whitelist)
+    - Hile olarak isaretlenmez
+
+8. EKSTRA GIZLILIK (OPSIYONEL)
+────────────────────────────────
+  version.dll'i daha az dikkat cekici yapmak icin:
+  - Proje ozellikleri → Version Info'ya Spotify'in
+    versiyon bilgilerini gir (dosya aciklamasi, sirket adi vb.)
+  - DLL'in icon'unu Spotify icon'u yap
+
+========================================================

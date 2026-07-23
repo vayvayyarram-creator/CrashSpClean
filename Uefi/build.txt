@@ -1,0 +1,123 @@
+======================================================
+  loader.efi — BUILD TALİMATLARI
+======================================================
+
+──────────────────────────────────────────────
+YOL 1: EDK2 (resmi, en doğru yol)
+──────────────────────────────────────────────
+
+1) EDK2 kurulumu:
+   git clone https://github.com/tianocore/edk2.git
+   cd edk2
+   git submodule update --init
+
+2) NASM + Python 3 + Visual Studio (C++ Build Tools) kur.
+
+3) edksetup.bat çalıştır (x64 Native Tools CMD içinde):
+   edksetup.bat Rebuild
+
+4) loader.c ve loader.inf dosyalarını MdeModulePkg içine kopyala:
+   mkdir MdeModulePkg\Application\CheatLoader
+   copy <projeYolu>\UEFI\loader.c  MdeModulePkg\Application\CheatLoader\
+   copy <projeYolu>\UEFI\loader.inf MdeModulePkg\Application\CheatLoader\
+
+5) MdeModulePkg\MdeModulePkg.dsc içine ekle:
+   [Components.X64]
+     MdeModulePkg/Application/CheatLoader/loader.inf
+
+6) Build:
+   build -p MdeModulePkg\MdeModulePkg.dsc ^
+         -m MdeModulePkg\Application\CheatLoader\loader.inf ^
+         -a X64 -t VS2019 -b RELEASE
+
+7) Output:
+   Build\MdeModulePkg\RELEASE_VS2019\X64\loader.efi
+
+──────────────────────────────────────────────
+YOL 2: gnu-efi (Linux/WSL, daha kolay)
+──────────────────────────────────────────────
+
+# Ubuntu/Debian WSL:
+sudo apt install gnu-efi gcc-mingw-w64-x86-64 binutils
+
+# Derle:
+x86_64-w64-mingw32-gcc \
+  -I/usr/include/efi \
+  -I/usr/include/efi/x86_64 \
+  -fpic -ffreestanding -fno-stack-protector \
+  -fno-stack-check -fshort-wchar -mno-red-zone \
+  -maccumulate-outgoing-args \
+  -DEFI_FUNCTION_WRAPPER \
+  -c loader.c -o loader.o
+
+x86_64-w64-mingw32-ld \
+  -nostdlib -znocombreloc \
+  -T /usr/lib/elf_x86_64_efi.lds \
+  -shared -Bsymbolic \
+  /usr/lib/crt0-efi-x86_64.o \
+  loader.o \
+  -o loader.so \
+  -L/usr/lib -lefi -lgnuefi
+
+objcopy -j .text -j .sdata -j .data -j .dynamic \
+        -j .dynsym -j .rel -j .rela -j .reloc \
+        --target=efi-app-x86_64 loader.so loader.efi
+
+──────────────────────────────────────────────
+KURULUM (EFI Partition'a yükleme)
+──────────────────────────────────────────────
+
+Windows'ta EFI partition'ı mount et (admin CMD):
+  mountvol X: /S
+
+loader.efi dosyasını kopyala:
+  mkdir X:\EFI\Boot\Loader
+  copy loader.efi X:\EFI\Boot\Loader\loader.efi
+
+UEFI boot entry ekle (admin CMD, Secure Boot kapalıysa):
+  bcdedit /copy {bootmgr} /d "Windows Boot Manager"
+  # veya:
+  bcdedit /set {bootmgr} path \EFI\Boot\Loader\loader.efi
+
+  # Alternatif: efibootmgr (Linux/bootable USB'de):
+  efibootmgr --create --disk /dev/sda --part 1 \
+    --label "WinHelper" \
+    --loader '\EFI\Boot\Loader\loader.efi'
+
+Boot order'ı ayarla (loader.efi ÖNCE çalışmalı):
+  # BIOS/UEFI ayarlarına gir → Boot Order →
+  # "WinHelper" veya loader.efi'yi en üste taşı
+
+──────────────────────────────────────────────
+TEST
+──────────────────────────────────────────────
+
+Kurulumdan sonra:
+1) Restart et — loader.efi çalışır, Windows normal açılır.
+2) PowerShell (admin) ile variable kontrol et:
+   [System.Text.Encoding]::UTF8.GetString(
+     [System.Runtime.InteropServices.RuntimeInformation]::OSDescription.ToCharArray()
+   )
+   # Veya C++ ile GetFirmwareEnvironmentVariableExW test:
+   # Aşağıdaki tool'u çalıştır (SYSTEM hakları gerekir)
+
+Hızlı test (PowerShell, admin değil bile okuyabilir bazı sistemlerde):
+  $val = [System.Runtime.Interopservices.Marshal]::AllocHGlobal(4)
+  # Gerçek test için installer.exe'yi SYSTEM olarak çalıştır:
+  # PsExec64.exe -s -i installer.exe
+
+──────────────────────────────────────────────
+NOTLAR
+──────────────────────────────────────────────
+
+• Secure Boot AÇIKSA: loader.efi imzalanmamış → çalışmaz.
+  Çözüm: BIOS'tan Secure Boot'u kapat
+  (FiveM hiçbir zaman Secure Boot gerektirmez).
+
+• GUID değiştirmek istersen: loader.c + installer.cpp'de
+  aynı GUID olmalı:
+  UEFI: {DEADBEEF-1234-5678-ABCD-EF0123456789}
+  Win:  L"{DEADBEEF-1234-5678-ABCD-EF0123456789}"
+
+• loader.efi boyutu çok küçük olmalı (~10-30 KB).
+  Bu dosya herhangi bir AV'ın taramadığı EFI partition'da durur.

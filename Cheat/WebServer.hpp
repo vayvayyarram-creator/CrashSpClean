@@ -1,0 +1,1563 @@
+#pragma once
+#include "License.hpp"
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#include <ShlObj.h>
+#include <string>
+#include <sstream>
+#include <unordered_map>
+#include <thread>
+#include <mutex>
+#pragma comment(lib, "Ws2_32.lib")
+
+extern bool g_gameConnected;
+
+static WORD        g_webPort  = 3551;
+static std::string g_localIP  = "127.0.0.1";
+static std::mutex  g_webMtx;
+
+// UDP routing trick — UDP connect() just sets route, sends nothing.
+// Returns the outbound LAN IP (e.g. 192.168.1.5).
+static std::string GetLocalIP() {
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == INVALID_SOCKET) return "127.0.0.1";
+    sockaddr_in remote = {};
+    remote.sin_family = AF_INET;
+    remote.sin_port   = htons(53);
+    InetPtonA(AF_INET, "8.8.8.8", &remote.sin_addr);
+    if (connect(s, (sockaddr*)&remote, sizeof(remote)) != 0) {
+        closesocket(s); return "127.0.0.1";
+    }
+    sockaddr_in local = {};
+    int len = sizeof(local);
+    getsockname(s, (sockaddr*)&local, &len);
+    closesocket(s);
+    char buf[INET_ADDRSTRLEN] = {};
+    InetNtopA(AF_INET, &local.sin_addr, buf, sizeof(buf));
+    return std::string(buf[0] ? buf : "127.0.0.1");
+}
+
+
+
+
+static std::string ColToHex(ImColor c) {
+    ImVec4 v = (ImVec4)c;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "#%02x%02x%02x",
+        (int)(v.x*255.f+.5f),(int)(v.y*255.f+.5f),(int)(v.z*255.f+.5f));
+    return buf;
+}
+static void HexToCol(const std::string& h, ImColor& out) {
+    if (h.size() < 7 || h[0] != '#') return;
+    unsigned r=0,g=0,b=0;
+    sscanf_s(h.c_str()+1, "%02x%02x%02x", &r, &g, &b);
+    out = ImColor((int)r,(int)g,(int)b,255);
+}
+
+
+static std::string BuildSettingsJson() {
+    std::lock_guard<std::mutex> lk(g_webMtx);
+    std::ostringstream j;
+    j << "{";
+    auto jb = [&](const char* k, bool v)    { j<<"\""<<k<<"\":"<<(v?"true":"false")<<","; };
+    auto ji = [&](const char* k, int v)     { j<<"\""<<k<<"\":" <<v<<","; };
+    auto jf = [&](const char* k, float v)   { j<<"\""<<k<<"\":" <<v<<","; };
+    auto jc = [&](const char* k, ImColor v) { j<<"\""<<k<<"\":\""<<ColToHex(v)<<"\","; };
+    auto js_str = [&](const char* k, const std::string& v) {
+        j<<"\""<<k<<"\":\"";
+        for (char c : v) { if(c=='"') j<<"\\\""; else if(c=='\\') j<<"\\\\"; else j<<c; }
+        j<<"\",";
+    };
+
+    // Silent Aim
+    jb("silent_en",       Cheats::AimAssist::Silent::Enabled);
+    ji("silent_hk",       Cheats::AimAssist::Silent::HotKey);
+    jb("silent_toggle",   Cheats::AimAssist::Silent::ToggleMode);
+    ji("silent_fov",      Cheats::AimAssist::Silent::Fov);
+    ji("silent_dist",     Cheats::AimAssist::Silent::MaxDistance);
+    ji("silent_miss",     Cheats::AimAssist::Silent::MissChance);
+    ji("silent_bone",     Cheats::AimAssist::Silent::BoneMode);
+    jb("silent_fov_draw", Cheats::AimAssist::Silent::DrawFov);
+    ji("silent_fov_w",    Cheats::AimAssist::Silent::FovWeight);
+    jc("c_silent_fov",    Cheats::AimAssist::Silent::FovColor);
+    jb("silent_vis",      Cheats::AimAssist::Silent::VisCheck);
+    jb("silent_skip",     Cheats::AimAssist::Silent::SkipFriends);
+
+    // Magic Bullet
+    jb("mb_en",      Cheats::AimAssist::MagicBullet::Enabled);
+    ji("mb_bone",    Cheats::AimAssist::MagicBullet::BoneMode);
+    ji("mb_dist",    Cheats::AimAssist::MagicBullet::MaxDistance);
+    jb("mb_skipfr",  Cheats::AimAssist::MagicBullet::SkipFriends);
+    jb("mb_skipnpc", Cheats::AimAssist::MagicBullet::SkipNPC);
+
+    // Aimbot
+    jb("aim_en",       Cheats::AimAssist::Aimbot::Enabled);
+    ji("aim_hk",       Cheats::AimAssist::Aimbot::HotKey);
+    jb("aim_toggle",   Cheats::AimAssist::Aimbot::ToggleMode);
+    ji("aim_fov",      Cheats::AimAssist::Aimbot::Fov);
+    ji("aim_smooth",   Cheats::AimAssist::Aimbot::Smooth);
+    ji("aim_dist",     Cheats::AimAssist::Aimbot::MaxDistance);
+    ji("aim_bone",     Cheats::AimAssist::Aimbot::BoneMode);
+    ji("aim_mode",     Cheats::AimAssist::Aimbot::AimMode);
+    ji("aim_prio",     Cheats::AimAssist::Aimbot::Priority);
+    jb("aim_fov_draw", Cheats::AimAssist::Aimbot::DrawFov);
+    ji("aim_fov_w",    Cheats::AimAssist::Aimbot::FovWeight);
+    jc("c_aim_fov",    Cheats::AimAssist::Aimbot::FovColor);
+    jb("aim_sticky",   Cheats::AimAssist::Aimbot::StickyAim);
+    jb("aim_vis",      Cheats::AimAssist::Aimbot::VisCheck);
+    jb("aim_skip",     Cheats::AimAssist::Aimbot::SkipFriends);
+
+    // Triggerbot
+    jb("trig_en",    Cheats::AimAssist::Triggerbot::Enabled);
+    ji("trig_hk",    Cheats::AimAssist::Triggerbot::HotKey);
+    ji("trig_delay", Cheats::AimAssist::Triggerbot::Delay);
+    ji("trig_dist",  Cheats::AimAssist::Triggerbot::MaxDistance);
+    jb("trig_skip",  Cheats::AimAssist::Triggerbot::SkipFriends);
+
+    // Weapon
+    jb("wpn_ammo",      Cheats::AimAssist::Settings::InfiniteAmmo);
+    jb("wpn_recoil",    Cheats::AimAssist::Settings::NoRecoil);
+    jb("wpn_spread",    Cheats::AimAssist::Settings::NoSpread);
+    jb("wpn_reload",    Cheats::AimAssist::Settings::NoReload);
+    jb("wpn_rapid",     Cheats::World::RapidFire::Enabled);
+    jb("wpn_crosshair", Cheats::AimAssist::Settings::Crosshair);
+    ji("wpn_xtype",     Cheats::AimAssist::Settings::CrosshairSelectedType);
+    ji("wpn_xsize",     Cheats::AimAssist::Settings::CrosshairSize);
+
+    // RGB ESP
+    jb("esp_rgb",      Cheats::Players::RgbESP::Enabled);
+    jf("esp_rgb_spd",  Cheats::Players::RgbESP::Speed);
+    jf("esp_rgb_sat",  Cheats::Players::RgbESP::Saturation);
+    jf("esp_rgb_val",  Cheats::Players::RgbESP::Value);
+
+    // ESP / VisualMarkers
+    jb("esp_vis",      Cheats::Players::VisCheck::Enabled);
+    jc("c_esp_vis",    Cheats::Players::VisCheck::VisibleColor);
+    jc("c_esp_hid",    Cheats::Players::VisCheck::HiddenColor);
+    // Friends ESP
+    jb("friend_esp_en", Cheats::Players::FriendESP::Enabled);
+    jc("c_friend_esp",  Cheats::Players::FriendESP::Color);
+    // Tag Count ESP
+    jb("tagcount_en",   Cheats::Players::TagCount::Enabled);
+    jc("c_tagcount",    Cheats::Players::TagCount::Color);
+    ji("esp_linetype", Cheats::Players::VisualMarkers::GlobalSettings::SelectedLineType);
+    ji("esp_linew",    Cheats::Players::VisualMarkers::GlobalSettings::LineWeight);
+    jb("esp_skel",     Cheats::Players::VisualMarkers::DrawSkeleton::Enabled);
+    jc("c_esp_skel",   Cheats::Players::VisualMarkers::DrawSkeleton::Color);
+    jb("esp_box",      Cheats::Players::VisualMarkers::DrawBox::Enabled);
+    ji("esp_boxtype",  Cheats::Players::VisualMarkers::DrawBox::SelectedType);
+    jc("c_esp_box",    Cheats::Players::VisualMarkers::DrawBox::Color);
+    jb("esp_line",     Cheats::Players::VisualMarkers::DrawLine::Enabled);
+    ji("esp_lineloc",  Cheats::Players::VisualMarkers::DrawLine::SelectedLocation);
+    jc("c_esp_line",   Cheats::Players::VisualMarkers::DrawLine::Color);
+    jb("esp_bone",     Cheats::Players::VisualMarkers::DrawBonePoints::Enabled);
+    ji("esp_bone_r",   Cheats::Players::VisualMarkers::DrawBonePoints::Radius);
+    jc("c_esp_bone",   Cheats::Players::VisualMarkers::DrawBonePoints::Color);
+    ji("esp_dist",     Cheats::Players::Settings::MaxDistance);
+    jb("esp_noped",      (bool)Cheats::Players::Settings::IgnorePed);
+    jb("esp_nodead",     (bool)Cheats::Players::Settings::IgnoreDeath);
+    jb("esp_offscreen",  Cheats::Players::OffscreenESP::Enabled);
+
+    // Player Info
+    ji("pi_maxdist",  Cheats::Players::PlayerInfo::GlobalSettings::MaxDistance);
+    jb("pi_name",     Cheats::Players::PlayerInfo::DrawName::Enabled);
+    ji("pi_name_loc", Cheats::Players::PlayerInfo::DrawName::SelectedLocation);
+    jc("c_pi_name",   Cheats::Players::PlayerInfo::DrawName::Color);
+    jb("pi_id",       Cheats::Players::PlayerInfo::DrawId::Enabled);
+    ji("pi_id_loc",   Cheats::Players::PlayerInfo::DrawId::SelectedLocation);
+    jc("c_pi_id",     Cheats::Players::PlayerInfo::DrawId::Color);
+    jb("pi_dist",     Cheats::Players::PlayerInfo::DrawDistance::Enabled);
+    ji("pi_dist_loc", Cheats::Players::PlayerInfo::DrawDistance::SelectedLocation);
+    jc("c_pi_dist",   Cheats::Players::PlayerInfo::DrawDistance::Color);
+    jb("pi_weapon",   Cheats::Players::PlayerInfo::DrawWeaponName::Enabled);
+    ji("pi_wpn_loc",  Cheats::Players::PlayerInfo::DrawWeaponName::SelectedLocation);
+    jc("c_pi_weapon", Cheats::Players::PlayerInfo::DrawWeaponName::Color);
+
+    // Status Bars
+    jb("sb_hp",        Cheats::Players::StatusBars::DrawHealthBar::Enabled);
+    ji("sb_hp_loc",    Cheats::Players::StatusBars::DrawHealthBar::SelectedLocation);
+    jb("sb_armor",     Cheats::Players::StatusBars::DrawArmorBar::Enabled);
+    ji("sb_armor_loc", Cheats::Players::StatusBars::DrawArmorBar::SelectedLocation);
+
+    // Vehicles
+    jb("veh_pt",       Cheats::Vehicles::DrawPoint::Enabled);
+    jc("c_veh_pt",     Cheats::Vehicles::DrawPoint::Color);
+    ji("veh_pt_size",  Cheats::Vehicles::DrawPoint::Size);
+    jb("veh_ln",       Cheats::Vehicles::DrawLine::Enabled);
+    jc("c_veh_ln",     Cheats::Vehicles::DrawLine::Color);
+    ji("veh_ln_loc",   Cheats::Vehicles::DrawLine::SelectedLocation);
+    jb("veh_dist_en",  Cheats::Vehicles::DrawDistance::Enabled);
+    jc("c_veh_dist",   Cheats::Vehicles::DrawDistance::Color);
+    jb("veh_hp",       Cheats::Vehicles::DrawHealthBar::Enabled);
+    jb("veh_ignlocal", Cheats::Vehicles::Settings::IgnoreLocalVehicle);
+    ji("veh_maxcount", Cheats::Vehicles::Settings::MaxVehicleCount);
+    ji("veh_maxdist",  Cheats::Vehicles::Settings::MaxDistance);
+    jb("veh_fix",      Cheats::Vehicles::VehicleFix::Enabled);
+    ji("veh_fix_hk",   Cheats::Vehicles::VehicleFix::HotKey);
+    jb("veh_god",      Cheats::Vehicles::VehicleGodMode::Enabled);
+    jb("veh_spd",      Cheats::Vehicles::SpeedBoost::Enabled);
+    ji("veh_spd_kmh",  Cheats::Vehicles::SpeedBoost::KmH);
+    jb("veh_flip",     Cheats::Vehicles::VehicleFlip::Enabled);
+    ji("veh_flip_hk",  Cheats::Vehicles::VehicleFlip::HotKey);
+
+    // World
+    jb("w_noclip",    Cheats::World::NoClip::Enabled);
+    ji("w_noclip_spd",Cheats::World::NoClip::MovementSpeed);
+    jb("w_semigod",   Cheats::World::SemiGodMode::Enabled);
+    jb("w_sprint",    Cheats::World::SuperSprint::Enabled);
+    ji("w_sprintspd", Cheats::World::SuperSprint::Speed);
+    jb("w_stamina",   Cheats::World::InfiniteStamina::Enabled);
+    jb("w_explode",   Cheats::World::ExplosiveBullets::Enabled);
+    jb("w_fire",      Cheats::World::FireBullets::Enabled);
+    jb("w_healtoggle", Cheats::World::HealToggle::Enabled);
+    ji("w_healtogglekey",Cheats::World::HealToggle::HotKey);
+    jb("w_armorfill",   Cheats::World::ArmorFill::Enabled);
+    ji("w_armorfillkey",Cheats::World::ArmorFill::HotKey);
+    jb("w_damageboost",Cheats::World::DamageBoost::Enabled);
+    jf("w_damagemul",  Cheats::World::DamageBoost::Multiplier);
+    jb("w_lowdamage",  Cheats::World::LowDamage::Enabled);
+    jf("w_lowdamagemul",Cheats::World::LowDamage::Multiplier);
+    jb("w_respawn",    Cheats::World::Respawn::Enabled);
+    jb("w_unlockcar",    Cheats::World::UnlockCar::Enabled);
+    ji("w_unlockcar_mk", Cheats::World::UnlockCar::ModKey);
+    jb("w_invisible",    Cheats::World::Invisible::Enabled);
+    ji("w_invisible_hk", Cheats::World::Invisible::HotKey);
+    jb("w_spectdet",     Cheats::SpectatorDetect::Enabled);
+    ji("w_spectdet_thr", Cheats::SpectatorDetect::Threshold);
+    jb("w_lowgrav",      Cheats::LowGravity::Enabled);
+    jf("w_lowgrav_str",  Cheats::LowGravity::Strength);
+    jb("w_moonjump",     Cheats::MoonJump::Enabled);
+    jf("w_moonjump_f",   Cheats::MoonJump::Force);
+
+    // Settings
+    jb("s_stream",    Cheats::Settings::StreamProof);
+    jb("s_watermark", g_showWatermark);
+    ji("s_theme",     Cheats::Settings::SelectedTheme);
+    ji("s_maxplrs",   Cheats::Settings::MaxPlayerCount);
+    js_str("s_discord_wh", g_discordWebhook);
+
+    j << "\"_\":0}";
+    return j.str();
+}
+
+// /api/esp-data — PC overlay ile birebir aynı veriyi ekran koordinatlarında gönderir.
+// Mobil tarayıcı bu veriyle PC'deki ESP görüntüsünü canvas üzerinde yeniden çizer.
+static std::string BuildEspDataJson() {
+    // View matrix + ekran boyutu
+    Matrix vm;
+    { std::lock_guard<std::mutex> lk(g_vmMutex); vm = g_cachedVM; }
+    int sw = (Game.lpRect.right  > 0) ? Game.lpRect.right  : 1920;
+    int sh = (Game.lpRect.bottom > 0) ? Game.lpRect.bottom : 1080;
+
+    std::vector<Ped> snap;
+    { std::lock_guard<std::mutex> lk(g_pedMutex); snap = PedList; }
+
+    std::ostringstream j;
+    j << "{\"sw\":" << sw << ",\"sh\":" << sh << ",\"players\":[";
+    bool first = true;
+
+    for (auto& p : snap) {
+        int id = p.GetId();
+        if (id <= 0) continue;
+
+        // Bounding box hesabı (Cheat.hpp DrawCheat ile aynı mantık)
+        Vector2 pHead={}, pNeck={}, pLFoot={}, pRFoot={}, pBase={};
+        bool headOk = !Vec3Empty(p.BoneList[Head])      && WorldToScreen(vm, p.BoneList[Head],      pHead);
+        bool neckOk = !Vec3Empty(p.BoneList[Neck])      && WorldToScreen(vm, p.BoneList[Neck],      pNeck);
+        bool lfOk   = !Vec3Empty(p.BoneList[LeftFoot])  && WorldToScreen(vm, p.BoneList[LeftFoot],  pLFoot);
+        bool rfOk   = !Vec3Empty(p.BoneList[RightFoot]) && WorldToScreen(vm, p.BoneList[RightFoot], pRFoot);
+        bool baseOk = WorldToScreen(vm, p.Position, pBase);
+        if (!headOk && !neckOk && !baseOk) continue; // kamera arkası
+
+        float bX = baseOk ? pBase.x : (headOk ? pHead.x : pNeck.x);
+        float pW  = (headOk && neckOk) ? fabsf(pNeck.y - pHead.y) * 1.5f : 20.f;
+        float pTop = (headOk && neckOk) ? pHead.y - (pNeck.y - pHead.y) * 2.5f
+                   : headOk ? pHead.y - 15.f : pBase.y - 80.f;
+        float pBot = (lfOk || rfOk)
+                   ? std::max(lfOk ? pLFoot.y : 0.f, rfOk ? pRFoot.y : 0.f)
+                   : (baseOk ? pBase.y : pHead.y + 80.f);
+
+        // 9 bone ekran koordinatı — Head=0 LFoot=1 RFoot=2 LAnkle=3 RAnkle=4 LHand=5 RHand=6 Neck=7 Hip=8
+        Vector2 bs[9] = {};
+        bool    bOk[9] = {};
+        for (int bi = 0; bi < 9; ++bi)
+            if (!Vec3Empty(p.BoneList[bi]))
+                bOk[bi] = WorldToScreen(vm, p.BoneList[bi], bs[bi]);
+
+        if (!first) j << ",";
+        first = false;
+
+        float dist = GetDistance(p.Position, LocalPlayer.Position);
+        bool  vis  = p.IsVisible();
+        bool  fr   = IsFriend(id);
+        float hp   = p.GetHealth();
+        float ar   = p.GetArmor();
+        std::string nm = p.GetName();
+        if (nm.empty()) nm = "P#" + std::to_string(id);
+        std::string safe; for (char c : nm) { if(c=='"'||c=='\\') safe+='\\'; safe+=c; }
+        std::string wpn = p.GetWeaponName();
+        std::string swpn; for (char c : wpn) { if(c=='"'||c=='\\') swpn+='\\'; swpn+=c; }
+
+        j << "{\"id\":"  << id
+          << ",\"n\":\"" << safe << "\""
+          << ",\"wpn\":\"" << swpn << "\""
+          << ",\"hp\":"  << (int)hp
+          << ",\"ar\":"  << (int)ar
+          << ",\"d\":"   << (int)dist
+          << ",\"vis\":" << (vis?1:0)
+          << ",\"f\":"   << (fr?1:0)
+          << ",\"bx\":"  << (int)bX              // base X (snapline için)
+          << ",\"by\":"  << (int)pBot             // base Y (feet)
+          << ",\"box\":["
+              << (int)(bX - pW*0.5f) << ","
+              << (int)pTop           << ","
+              << (int)(bX + pW*0.5f) << ","
+              << (int)pBot
+          << "],\"bones\":[";
+        for (int bi = 0; bi < 9; ++bi) {
+            if (bi) j << ",";
+            if (bOk[bi]) j << "[" << (int)bs[bi].x << "," << (int)bs[bi].y << ",1]";
+            else         j << "[0,0,0]";
+        }
+        j << "]}";
+    }
+    j << "]}";
+    return j.str();
+}
+
+static std::string BuildPlayersJson() {
+    std::ostringstream j;
+    j << "[";
+    std::vector<Ped> snap;
+    { std::lock_guard<std::mutex> lk(g_pedMutex); snap = PedList; }
+    bool first = true;
+    for (auto& p : snap) {
+        // HTTP cache az önce güncellendi — snapshot kopyasında Name'i yenile
+        p.RefreshName();
+        int id = p.GetId();
+        if (id <= 0) continue;
+        bool fr = IsFriend(id);
+        std::string nm = p.GetName();
+        if (nm.empty()) nm = "P#" + std::to_string(id);
+        // Escape quotes in name
+        std::string safe; for (char c : nm) { if(c=='"'||c=='\\') safe+='\\'; safe+=c; }
+        float hp = p.GetHealth();
+        float dist = GetDistance(p.Position, LocalPlayer.Position);
+        if (!first) j << ",";
+        j << "{\"id\":" << id
+          << ",\"name\":\"" << safe << "\""
+          << ",\"hp\":" << (int)hp
+          << ",\"dist\":" << (int)dist
+          << ",\"friend\":" << (fr?"true":"false") << "}";
+        first = false;
+    }
+    j << "]";
+    return j.str();
+}
+
+static std::string BuildStatusJson() {
+    std::ostringstream j;
+    j << "{\"connected\":" << (g_gameConnected?"true":"false")
+      << ",\"version\":\"" << Game.Version << "\""
+      << ",\"port\":"      << g_webPort
+      << ",\"ip\":\""      << g_localIP << "\"}";
+    return j.str();
+}
+
+// ── Flat JSON parser — handles quoted string values ───────────
+static std::unordered_map<std::string,std::string> ParseFlatJson(const std::string& js) {
+    std::unordered_map<std::string,std::string> m;
+    size_t i = 0, n = js.size();
+    while (i < n) {
+        size_t qs = js.find('"', i);    if (qs==std::string::npos) break;
+        size_t qe = js.find('"', qs+1); if (qe==std::string::npos) break;
+        std::string key = js.substr(qs+1, qe-qs-1);
+        size_t col = js.find(':', qe);  if (col==std::string::npos) break;
+        size_t vs = col+1;
+        while (vs < n && js[vs]==' ') vs++;
+        std::string val;
+        if (vs < n && js[vs]=='"') {
+            size_t ve2 = js.find('"', vs+1); if (ve2==std::string::npos) break;
+            val = js.substr(vs+1, ve2-vs-1);
+            i = ve2+1;
+        } else {
+            size_t ve = vs;
+            while (ve < n && js[ve]!=',' && js[ve]!='}') ve++;
+            val = js.substr(vs, ve-vs);
+            while (!val.empty()&&(val.back()==' '||val.back()=='\r'||val.back()=='\n')) val.pop_back();
+            i = ve+1;
+        }
+        if (key != "_") m[key] = val;
+    }
+    return m;
+}
+
+static volatile DWORD g_cfgDirtyTick = 0;  // 0 = temiz; >0 = kaydedilecek zaman
+
+static bool ApplySettingsJson(const std::string& body) {
+    auto m = ParseFlatJson(body);
+    if (m.empty()) return false;
+    std::lock_guard<std::mutex> lk(g_webMtx);
+
+    auto gb  = [&](const char* k, bool& v)             { auto it=m.find(k); if(it!=m.end()) v=(it->second=="true"||it->second=="1"); };
+    auto gbs = [&](const char* k, Scrambled<bool>& v) { auto it=m.find(k); if(it!=m.end()) v=(bool)(it->second=="true"||it->second=="1"); };
+    auto gi = [&](const char* k, int& v)     { auto it=m.find(k); if(it!=m.end()) v=atoi(it->second.c_str()); };
+    auto gf = [&](const char* k, float& v)   { auto it=m.find(k); if(it!=m.end()) v=(float)atof(it->second.c_str()); };
+    auto gc = [&](const char* k, ImColor& v) { auto it=m.find(k); if(it!=m.end()) HexToCol(it->second,v); };
+    auto gs = [&](const char* k, std::string& v) { auto it=m.find(k); if(it!=m.end()) v=it->second; };
+
+    // Silent
+    gbs("silent_en",      Cheats::AimAssist::Silent::Enabled);
+    gi("silent_hk",       Cheats::AimAssist::Silent::HotKey);
+    gb("silent_toggle",   Cheats::AimAssist::Silent::ToggleMode);
+    gi("silent_fov",      Cheats::AimAssist::Silent::Fov);
+    gi("silent_dist",     Cheats::AimAssist::Silent::MaxDistance);
+    gi("silent_miss",     Cheats::AimAssist::Silent::MissChance);
+    gi("silent_bone",     Cheats::AimAssist::Silent::BoneMode);
+    gb("silent_fov_draw", Cheats::AimAssist::Silent::DrawFov);
+    gi("silent_fov_w",    Cheats::AimAssist::Silent::FovWeight);
+    gc("c_silent_fov",    Cheats::AimAssist::Silent::FovColor);
+    gb("silent_vis",      Cheats::AimAssist::Silent::VisCheck);
+    gb("silent_skip",     Cheats::AimAssist::Silent::SkipFriends);
+
+    // Magic Bullet
+    gbs("mb_en",     Cheats::AimAssist::MagicBullet::Enabled);
+    gi("mb_bone",    Cheats::AimAssist::MagicBullet::BoneMode);
+    gi("mb_dist",    Cheats::AimAssist::MagicBullet::MaxDistance);
+    gb("mb_skipfr",  Cheats::AimAssist::MagicBullet::SkipFriends);
+    gb("mb_skipnpc", Cheats::AimAssist::MagicBullet::SkipNPC);
+
+    // Aimbot
+    gbs("aim_en",      Cheats::AimAssist::Aimbot::Enabled);
+    gi("aim_hk",       Cheats::AimAssist::Aimbot::HotKey);
+    gb("aim_toggle",   Cheats::AimAssist::Aimbot::ToggleMode);
+    gi("aim_fov",      Cheats::AimAssist::Aimbot::Fov);
+    gi("aim_smooth",   Cheats::AimAssist::Aimbot::Smooth);
+    gi("aim_dist",     Cheats::AimAssist::Aimbot::MaxDistance);
+    gi("aim_bone",     Cheats::AimAssist::Aimbot::BoneMode);
+    gi("aim_mode",     Cheats::AimAssist::Aimbot::AimMode);
+    gi("aim_prio",     Cheats::AimAssist::Aimbot::Priority);
+    gb("aim_fov_draw", Cheats::AimAssist::Aimbot::DrawFov);
+    gi("aim_fov_w",    Cheats::AimAssist::Aimbot::FovWeight);
+    gc("c_aim_fov",    Cheats::AimAssist::Aimbot::FovColor);
+    gb("aim_sticky",   Cheats::AimAssist::Aimbot::StickyAim);
+    gb("aim_vis",      Cheats::AimAssist::Aimbot::VisCheck);
+    gb("aim_skip",     Cheats::AimAssist::Aimbot::SkipFriends);
+
+    // Triggerbot
+    gb("trig_en",    Cheats::AimAssist::Triggerbot::Enabled);
+    gi("trig_hk",    Cheats::AimAssist::Triggerbot::HotKey);
+    gi("trig_delay", Cheats::AimAssist::Triggerbot::Delay);
+    gi("trig_dist",  Cheats::AimAssist::Triggerbot::MaxDistance);
+    gb("trig_skip",  Cheats::AimAssist::Triggerbot::SkipFriends);
+
+    // Weapon
+    gb("wpn_ammo",      Cheats::AimAssist::Settings::InfiniteAmmo);
+    gb("wpn_recoil",    Cheats::AimAssist::Settings::NoRecoil);
+    gb("wpn_spread",    Cheats::AimAssist::Settings::NoSpread);
+    gb("wpn_reload",    Cheats::AimAssist::Settings::NoReload);
+    gb("wpn_rapid",     Cheats::World::RapidFire::Enabled);
+    gb("wpn_crosshair", Cheats::AimAssist::Settings::Crosshair);
+    gi("wpn_xtype",     Cheats::AimAssist::Settings::CrosshairSelectedType);
+    gi("wpn_xsize",     Cheats::AimAssist::Settings::CrosshairSize);
+
+    // ESP
+    gb("esp_rgb",      Cheats::Players::RgbESP::Enabled);
+    gf("esp_rgb_spd",  Cheats::Players::RgbESP::Speed);
+    gf("esp_rgb_sat",  Cheats::Players::RgbESP::Saturation);
+    gf("esp_rgb_val",  Cheats::Players::RgbESP::Value);
+
+    gb("esp_vis",      Cheats::Players::VisCheck::Enabled);
+    gc("c_esp_vis",    Cheats::Players::VisCheck::VisibleColor);
+    gc("c_esp_hid",    Cheats::Players::VisCheck::HiddenColor);
+    // Friends ESP
+    gb("friend_esp_en", Cheats::Players::FriendESP::Enabled);
+    gc("c_friend_esp",  Cheats::Players::FriendESP::Color);
+    // Tag Count ESP
+    gb("tagcount_en",   Cheats::Players::TagCount::Enabled);
+    gc("c_tagcount",    Cheats::Players::TagCount::Color);
+    gi("esp_linetype", Cheats::Players::VisualMarkers::GlobalSettings::SelectedLineType);
+    gi("esp_linew",    Cheats::Players::VisualMarkers::GlobalSettings::LineWeight);
+    gb("esp_skel",     Cheats::Players::VisualMarkers::DrawSkeleton::Enabled);
+    gc("c_esp_skel",   Cheats::Players::VisualMarkers::DrawSkeleton::Color);
+    gb("esp_box",      Cheats::Players::VisualMarkers::DrawBox::Enabled);
+    gi("esp_boxtype",  Cheats::Players::VisualMarkers::DrawBox::SelectedType);
+    gc("c_esp_box",    Cheats::Players::VisualMarkers::DrawBox::Color);
+    gb("esp_line",     Cheats::Players::VisualMarkers::DrawLine::Enabled);
+    gi("esp_lineloc",  Cheats::Players::VisualMarkers::DrawLine::SelectedLocation);
+    gc("c_esp_line",   Cheats::Players::VisualMarkers::DrawLine::Color);
+    gb("esp_bone",     Cheats::Players::VisualMarkers::DrawBonePoints::Enabled);
+    gi("esp_bone_r",   Cheats::Players::VisualMarkers::DrawBonePoints::Radius);
+    gc("c_esp_bone",   Cheats::Players::VisualMarkers::DrawBonePoints::Color);
+    gi("esp_dist",     Cheats::Players::Settings::MaxDistance);
+    { bool b; gb("esp_noped",    b); Cheats::Players::Settings::IgnorePed     = (int)b; }
+    { bool b; gb("esp_nodead",   b); Cheats::Players::Settings::IgnoreDeath   = (int)b; }
+    gb("esp_offscreen",  Cheats::Players::OffscreenESP::Enabled);
+
+    // Player Info
+    gi("pi_maxdist",  Cheats::Players::PlayerInfo::GlobalSettings::MaxDistance);
+    gb("pi_name",     Cheats::Players::PlayerInfo::DrawName::Enabled);
+    gi("pi_name_loc", Cheats::Players::PlayerInfo::DrawName::SelectedLocation);
+    gc("c_pi_name",   Cheats::Players::PlayerInfo::DrawName::Color);
+    gb("pi_id",       Cheats::Players::PlayerInfo::DrawId::Enabled);
+    gi("pi_id_loc",   Cheats::Players::PlayerInfo::DrawId::SelectedLocation);
+    gc("c_pi_id",     Cheats::Players::PlayerInfo::DrawId::Color);
+    gb("pi_dist",     Cheats::Players::PlayerInfo::DrawDistance::Enabled);
+    gi("pi_dist_loc", Cheats::Players::PlayerInfo::DrawDistance::SelectedLocation);
+    gc("c_pi_dist",   Cheats::Players::PlayerInfo::DrawDistance::Color);
+    gb("pi_weapon",   Cheats::Players::PlayerInfo::DrawWeaponName::Enabled);
+    gi("pi_wpn_loc",  Cheats::Players::PlayerInfo::DrawWeaponName::SelectedLocation);
+    gc("c_pi_weapon", Cheats::Players::PlayerInfo::DrawWeaponName::Color);
+
+    // Status Bars
+    gb("sb_hp",        Cheats::Players::StatusBars::DrawHealthBar::Enabled);
+    gi("sb_hp_loc",    Cheats::Players::StatusBars::DrawHealthBar::SelectedLocation);
+    gb("sb_armor",     Cheats::Players::StatusBars::DrawArmorBar::Enabled);
+    gi("sb_armor_loc", Cheats::Players::StatusBars::DrawArmorBar::SelectedLocation);
+
+    // Vehicles
+    gb("veh_pt",       Cheats::Vehicles::DrawPoint::Enabled);
+    gc("c_veh_pt",     Cheats::Vehicles::DrawPoint::Color);
+    gi("veh_pt_size",  Cheats::Vehicles::DrawPoint::Size);
+    gb("veh_ln",       Cheats::Vehicles::DrawLine::Enabled);
+    gc("c_veh_ln",     Cheats::Vehicles::DrawLine::Color);
+    gi("veh_ln_loc",   Cheats::Vehicles::DrawLine::SelectedLocation);
+    gb("veh_dist_en",  Cheats::Vehicles::DrawDistance::Enabled);
+    gc("c_veh_dist",   Cheats::Vehicles::DrawDistance::Color);
+    gb("veh_hp",       Cheats::Vehicles::DrawHealthBar::Enabled);
+    gb("veh_ignlocal", Cheats::Vehicles::Settings::IgnoreLocalVehicle);
+    gi("veh_maxcount", Cheats::Vehicles::Settings::MaxVehicleCount);
+    gi("veh_maxdist",  Cheats::Vehicles::Settings::MaxDistance);
+    gb("veh_fix",      Cheats::Vehicles::VehicleFix::Enabled);
+    gi("veh_fix_hk",   Cheats::Vehicles::VehicleFix::HotKey);
+    gb("veh_god",      Cheats::Vehicles::VehicleGodMode::Enabled);
+    gb("veh_spd",      Cheats::Vehicles::SpeedBoost::Enabled);
+    gi("veh_spd_kmh",  Cheats::Vehicles::SpeedBoost::KmH);
+    gb("veh_flip",     Cheats::Vehicles::VehicleFlip::Enabled);
+    gi("veh_flip_hk",  Cheats::Vehicles::VehicleFlip::HotKey);
+
+    // World
+    gb("w_noclip",    Cheats::World::NoClip::Enabled);
+    gi("w_noclip_spd",Cheats::World::NoClip::MovementSpeed);
+    gb("w_semigod",   Cheats::World::SemiGodMode::Enabled);
+    gb("w_sprint",    Cheats::World::SuperSprint::Enabled);
+    gi("w_sprintspd", Cheats::World::SuperSprint::Speed);
+    gb("w_stamina",   Cheats::World::InfiniteStamina::Enabled);
+    gb("w_explode",   Cheats::World::ExplosiveBullets::Enabled);
+    gb("w_fire",      Cheats::World::FireBullets::Enabled);
+    gb("w_healtoggle", Cheats::World::HealToggle::Enabled);
+    gi("w_healtogglekey",Cheats::World::HealToggle::HotKey);
+    gb("w_armorfill",   Cheats::World::ArmorFill::Enabled);
+    gi("w_armorfillkey",Cheats::World::ArmorFill::HotKey);
+    gb("w_damageboost",Cheats::World::DamageBoost::Enabled);
+    gf("w_damagemul",  Cheats::World::DamageBoost::Multiplier);
+    gb("w_lowdamage",  Cheats::World::LowDamage::Enabled);
+    gf("w_lowdamagemul",Cheats::World::LowDamage::Multiplier);
+    gb("w_respawn",    Cheats::World::Respawn::Enabled);
+    gb("w_unlockcar",    Cheats::World::UnlockCar::Enabled);
+    gi("w_unlockcar_mk", Cheats::World::UnlockCar::ModKey);
+    gb("w_invisible",    Cheats::World::Invisible::Enabled);
+    gi("w_invisible_hk", Cheats::World::Invisible::HotKey);
+    gb("w_spectdet",     Cheats::SpectatorDetect::Enabled);
+    gi("w_spectdet_thr", Cheats::SpectatorDetect::Threshold);
+    gb("w_lowgrav",      Cheats::LowGravity::Enabled);
+    gf("w_lowgrav_str",  Cheats::LowGravity::Strength);
+    gb("w_moonjump",     Cheats::MoonJump::Enabled);
+    gf("w_moonjump_f",   Cheats::MoonJump::Force);
+
+    // Settings
+    gb("s_stream",    Cheats::Settings::StreamProof);
+    gb("s_watermark", g_showWatermark);
+    gi("s_theme",     Cheats::Settings::SelectedTheme);
+    gi("s_maxplrs",   Cheats::Settings::MaxPlayerCount);
+    gs("s_discord_wh", g_discordWebhook);
+    { auto it=m.find("s_discord_wh_test"); if(it!=m.end()) DiscordLog("[Moon] Webhook test OK"); }
+
+    SaveConfigRemote();
+    return true;
+}
+
+// ── HTML menu — mobile-first redesign, iOS-style toggles, bottom nav ──
+// /esp — Settings ile es zamanlı tam ESP canvas; mobil ekrana letterbox ölçeklenir.
+static std::string GetEspHtml() {
+    return
+    R"ESP1(<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Live ESP</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#000;overflow:hidden;touch-action:none}canvas{display:block;position:fixed;top:0;left:0}#inf{position:fixed;bottom:6px;right:8px;color:#333;font-size:11px;font-family:monospace;pointer-events:none}</style>
+</head><body><canvas id="c"></canvas><div id="inf">--</div><script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let SW=1920,SH=1080,scX=1,scY=1,ofX=0,ofY=0;
+function resize(){cv.width=window.innerWidth;cv.height=window.innerHeight;
+  const a=SW/SH,wa=cv.width/cv.height;
+  if(wa>a){scY=cv.height/SH;scX=scY;ofX=(cv.width-SW*scX)/2;ofY=0;}
+  else{scX=cv.width/SW;scY=scX;ofY=(cv.height-SH*scY)/2;ofX=0;}}
+window.addEventListener('resize',resize);
+const tx=x=>ofX+x*scX,ty=y=>ofY+y*scY,ts=s=>s*scX;
+// --- Settings (2sn'de bir guncellenir) ---
+let cfg={esp_skel:true,esp_box:true,esp_boxtype:0,esp_line:false,esp_lineloc:2,
+  esp_bone:false,esp_bone_r:3,pi_name:true,pi_id:false,pi_dist:true,pi_weapon:false,
+  sb_hp:true,sb_armor:true,esp_vis:false,esp_rgb:false,
+  c_esp_vis:'#ff3333',c_esp_hid:'#ff8800',c_esp_skel:'#ffffff',c_esp_box:'#ff3333',
+  c_esp_line:'#ff3333',c_esp_bone:'#ffffff',c_pi_name:'#ffffff',c_pi_id:'#aaaaaa',
+  c_pi_dist:'#aaaaaa',c_pi_weapon:'#ffaa00'};
+async function fetchCfg(){try{const r=await fetch('/api/settings');const d=await r.json();
+  const B=k=>!!d[k],S=k=>d[k]||cfg[k];
+  cfg={esp_skel:B('esp_skel'),esp_box:B('esp_box'),esp_boxtype:d.esp_boxtype||0,
+    esp_line:B('esp_line'),esp_lineloc:d.esp_lineloc||2,
+    esp_bone:B('esp_bone'),esp_bone_r:d.esp_bone_r||3,
+    pi_name:B('pi_name'),pi_id:B('pi_id'),pi_dist:B('pi_dist'),pi_weapon:B('pi_weapon'),
+    sb_hp:B('sb_hp'),sb_armor:B('sb_armor'),esp_vis:B('esp_vis'),esp_rgb:B('esp_rgb'),
+    c_esp_vis:S('c_esp_vis'),c_esp_hid:S('c_esp_hid'),c_esp_skel:S('c_esp_skel'),
+    c_esp_box:S('c_esp_box'),c_esp_line:S('c_esp_line'),c_esp_bone:S('c_esp_bone'),
+    c_pi_name:S('c_pi_name'),c_pi_id:S('c_pi_id'),c_pi_dist:S('c_pi_dist'),c_pi_weapon:S('c_pi_weapon')};}catch(e){}}
+setInterval(fetchCfg,2000);fetchCfg();
+function rgbHue(idx){const h=(idx*222.5)%360;return'hsl('+h+',100%,55%)';}
+function pCol(p,base,idx){
+  if(p.f)return'#00e5ff';
+  if(cfg.esp_rgb){const c=rgbHue(idx||0);return(!p.vis)?'hsl('+((idx||0)*222.5%360)+',30%,30%)':c;}
+  if(cfg.esp_vis)return p.vis?cfg.c_esp_vis:cfg.c_esp_hid;
+  return base;}
+)ESP1"
+    R"ESP2(
+function drawBox(x1,y1,x2,y2,col){
+  const lw=ts(1.5);
+  if(cfg.esp_boxtype===1){ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.strokeRect(tx(x1),ty(y1),tx(x2)-tx(x1),ty(y2)-ty(y1));return;}
+  const w=x2-x1,h=y2-y1,cs=Math.min(w,h)*0.22;
+  ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.beginPath();
+  ctx.moveTo(tx(x1),ty(y1+cs));ctx.lineTo(tx(x1),ty(y1));ctx.lineTo(tx(x1+cs),ty(y1));
+  ctx.moveTo(tx(x2-cs),ty(y1));ctx.lineTo(tx(x2),ty(y1));ctx.lineTo(tx(x2),ty(y1+cs));
+  ctx.moveTo(tx(x1),ty(y2-cs));ctx.lineTo(tx(x1),ty(y2));ctx.lineTo(tx(x1+cs),ty(y2));
+  ctx.moveTo(tx(x2-cs),ty(y2));ctx.lineTo(tx(x2),ty(y2));ctx.lineTo(tx(x2),ty(y2-cs));
+  ctx.stroke();}
+function drawSkel(b,col){
+  const ok=i=>b[i]&&b[i][2],bx=i=>tx(b[i][0]),by=i=>ty(b[i][1]);
+  ctx.strokeStyle=col;ctx.lineWidth=ts(1.5);ctx.setLineDash([]);ctx.beginPath();
+  if(ok(7)&&ok(8)){ctx.moveTo(bx(7),by(7));ctx.lineTo(bx(8),by(8));}
+  if(ok(7)&&ok(5)){const ex=b[7][0]+(b[5][0]-b[7][0])*.35,ey=b[7][1]+(b[5][1]-b[7][1])*.35;ctx.moveTo(bx(7),by(7));ctx.lineTo(tx(ex),ty(ey));ctx.lineTo(bx(5),by(5));}
+  if(ok(7)&&ok(6)){const ex=b[7][0]+(b[6][0]-b[7][0])*.35,ey=b[7][1]+(b[6][1]-b[7][1])*.35;ctx.moveTo(bx(7),by(7));ctx.lineTo(tx(ex),ty(ey));ctx.lineTo(bx(6),by(6));}
+  if(ok(8)&&ok(3)){ctx.moveTo(bx(8),by(8));ctx.lineTo(bx(3),by(3));}
+  if(ok(3)&&ok(1)){ctx.moveTo(bx(3),by(3));ctx.lineTo(bx(1),by(1));}else if(ok(8)&&ok(1)){ctx.moveTo(bx(8),by(8));ctx.lineTo(bx(1),by(1));}
+  if(ok(8)&&ok(4)){ctx.moveTo(bx(8),by(8));ctx.lineTo(bx(4),by(4));}
+  if(ok(4)&&ok(2)){ctx.moveTo(bx(4),by(4));ctx.lineTo(bx(2),by(2));}else if(ok(8)&&ok(2)){ctx.moveTo(bx(8),by(8));ctx.lineTo(bx(2),by(2));}
+  ctx.stroke();
+  if(ok(0)&&ok(7)){const hr=Math.max(3,Math.abs(by(0)-by(7))*.6);ctx.beginPath();ctx.arc(bx(0),by(0),hr,0,Math.PI*2);ctx.stroke();}}
+function drawBars(x1,y1,x2,y2,hp,ar){
+  const lx=tx(x1)-ts(5),th=ty(y2)-ty(y1),bw=ts(3.5);
+  if(cfg.sb_hp){ctx.fillStyle='#111';ctx.fillRect(lx-bw,ty(y1),bw,th);
+    const hr=Math.max(0,Math.min(1,hp/200)),rv=Math.round(255*(1-hr)),gv=Math.round(200*hr);
+    ctx.fillStyle='rgb('+rv+','+gv+',0)';ctx.fillRect(lx-bw,ty(y1)+th*(1-hr),bw,th*hr);}
+  if(cfg.sb_armor&&ar>0){const rx2=tx(x2)+ts(2),ar2=Math.max(0,Math.min(1,ar/100));
+    ctx.fillStyle='#111';ctx.fillRect(rx2,ty(y1),bw,th);
+    ctx.fillStyle='#4db8ff';ctx.fillRect(rx2,ty(y1)+th*(1-ar2),bw,th*ar2);}}
+function drawLine(px,py,loc){
+  const ox2=tx(SW/2),oy2=loc===0?ty(0):loc===1?ty(SH/2):ty(SH);
+  ctx.strokeStyle=cfg.c_esp_line;ctx.lineWidth=ts(1);ctx.setLineDash([]);
+  ctx.beginPath();ctx.moveTo(ox2,oy2);ctx.lineTo(tx(px),ty(py));ctx.stroke();}
+function drawBonePoints(b,col){
+  ctx.fillStyle=col;const r=ts(cfg.esp_bone_r||3);
+  for(let i=0;i<9;i++){if(b[i]&&b[i][2]){ctx.beginPath();ctx.arc(tx(b[i][0]),ty(b[i][1]),r,0,Math.PI*2);ctx.fill();}}}
+function drawLabels(p,x1,y1,x2,col){
+  const fs=Math.max(9,ts(11));ctx.font=fs+'px Arial';ctx.textAlign='center';
+  const cx2=tx((x1+x2)/2);let ly=ty(y1)-ts(4);
+  function lbl(txt,c){ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillText(txt,cx2+1,ly+1);ctx.fillStyle=c;ctx.fillText(txt,cx2,ly);ly-=fs+ts(1);}
+  if(cfg.pi_name)lbl(p.n||('P#'+p.id),cfg.c_pi_name);
+  if(cfg.pi_dist)lbl(p.d+'m',cfg.c_pi_dist);
+  if(cfg.pi_id)lbl('#'+p.id,cfg.c_pi_id);
+  if(cfg.pi_weapon&&p.wpn)lbl(p.wpn,cfg.c_pi_weapon);}
+let data={sw:1920,sh:1080,players:[]},fps=0,fc=0,ft=Date.now();
+async function poll(){
+  try{const r=await fetch('/api/esp-data');const d=await r.json();
+    data=d;if(d.sw&&(d.sw!==SW||d.sh!==SH)){SW=d.sw;SH=d.sh;resize();}}catch(e){}
+  draw();fc++;const now=Date.now();
+  if(now-ft>=1000){fps=fc;fc=0;ft=now;
+    document.getElementById('inf').textContent=fps+' fps | '+(data.players||[]).length+' players';}
+  requestAnimationFrame(poll);}
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);ctx.fillStyle='#000';ctx.fillRect(0,0,cv.width,cv.height);
+  let _pi=0;
+  for(const p of(data.players||[])){
+    const _idx=_pi++;
+    if(!p.box)continue;
+    const[x1,y1,x2,y2]=p.box;
+    const bc=pCol(p,cfg.c_esp_box,_idx),sc=pCol(p,cfg.c_esp_skel,_idx);
+    if(cfg.esp_line)drawLine(p.bx,p.by,cfg.esp_lineloc);
+    if(cfg.esp_box)drawBox(x1,y1,x2,y2,bc);
+    if(cfg.esp_skel&&p.bones)drawSkel(p.bones,sc);
+    drawBars(x1,y1,x2,y2,p.hp||0,p.ar||0);
+    if(cfg.esp_bone&&p.bones)drawBonePoints(p.bones,cfg.c_esp_bone);
+    drawLabels(p,x1,y1,x2,bc);}}
+resize();poll();
+</script></body></html>)ESP2";
+}
+
+// Split into parts to stay under MSVC C2026 16380-char limit per literal.
+static std::string GetMenuHtml() {
+    const std::string s =
+    std::string(R"RAW1(<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="apple-mobile-web-app-capable" content="yes"><title>Moon Private</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#080906;--panel:rgba(10,10,12,.96);--card:rgba(18,18,20,.78);--bdr:rgba(255,255,255,.08);--txt:#d8d5ce;--muted:#8f8c84;--acc:#27c36f;--acc2:#e02d2f;--acc3:#f5a12a;--off:#111215;--anim:cubic-bezier(.25,.46,.45,.94)}
+body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;-webkit-tap-highlight-color:transparent;overscroll-behavior:none;text-shadow:0 1px 4px rgba(255,255,255,.06)}
+header{background:var(--panel);border-bottom:1px solid var(--bdr);padding:14px 20px 12px;display:flex;align-items:center;position:sticky;top:0;z-index:100;backdrop-filter:blur(20px)}
+header h1{font-size:18px;font-weight:700;text-shadow:0 2px 20px rgba(255,255,255,.12)}.moon{color:var(--acc)}.private{color:var(--acc2)}
+.sts{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:#333;transition:.4s;flex-shrink:0}
+.dot.on{background:var(--acc);box-shadow:0 0 8px var(--acc);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(39,195,111,.45)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.svd{color:var(--acc);opacity:0;transition:opacity .3s;font-size:11px}.svd.show{opacity:1}
+main{padding:8px 0 16px}
+.page{display:none;animation:fin .16s var(--anim)}.page.active{display:block;position:relative;z-index:1}
+@keyframes fin{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.stbs{display:flex;gap:2px;margin:8px 12px 10px;background:rgba(255,255,255,.04);border-radius:12px;padding:3px;overflow-x:auto;scrollbar-width:none}
+.stbs::-webkit-scrollbar{display:none}
+.stb{flex:0 0 auto;padding:8px 14px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);white-space:nowrap;transition:.15s;user-select:none}
+.stb.active{background:var(--off);color:var(--txt);box-shadow:0 0 24px rgba(39,195,111,.16),0 2px 6px rgba(0,0,0,.5)}
+.sp{display:none}.sp.active{display:block}
+.sec{margin-bottom:6px}
+.st{display:flex;align-items:center;gap:8px;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);padding:12px 20px 6px;font-weight:600;text-shadow:0 2px 16px rgba(255,255,255,.14)}
+.st img{width:16px;height:16px;object-fit:contain;filter:brightness(0) invert(.4);flex-shrink:0}
+.st svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.card{background:rgba(14,14,16,.28);border:1px solid rgba(255,255,255,.07);border-radius:14px;overflow:hidden;margin:0 12px;backdrop-filter:blur(5px);box-shadow:0 0 24px rgba(0,0,0,.22)}
+.row{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.04);gap:10px;min-height:52px}
+.row:last-child{border-bottom:none}
+.row:active{background:rgba(255,255,255,.03)}
+.row>label:not(.tog){flex:1;font-size:15px;color:var(--txt);text-shadow:0 2px 18px rgba(255,255,255,.14)}
+.tog{position:relative;width:48px;height:28px;flex-shrink:0;cursor:pointer}
+.tog input{opacity:0;width:100%;height:100%;position:absolute;z-index:2;cursor:pointer;margin:0}
+.tog .tgl{position:absolute;inset:0;border-radius:14px;background:#1a1a1d;transition:background .25s;border:1px solid rgba(255,255,255,.06)}
+.tog .tgl::after{content:'';position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#444;transition:left .25s,background .25s;box-shadow:0 1px 4px rgba(0,0,0,.7)}
+.tog input:checked+.tgl{background:var(--acc);border-color:transparent}
+.tog input:checked+.tgl::after{left:23px;background:#fff}
+.row.srow{display:grid;grid-template-columns:minmax(110px,155px) 1fr auto;gap:10px;align-items:center;min-height:52px}
+.row.srow label{font-size:14px;color:var(--txt)}
+.row.srow .v{font-size:13px;color:var(--acc);font-weight:700;min-width:30px;text-align:right}
+input[type=range]{width:100%;height:4px;accent-color:var(--acc);cursor:pointer}
+select{background:var(--off);border:1px solid var(--bdr);color:var(--txt);padding:8px 10px;border-radius:10px;font-size:13px;cursor:pointer;outline:none}
+select:focus{border-color:var(--acc)}
+input[type=color]{width:34px;height:28px;border:1px solid var(--bdr);border-radius:8px;padding:2px;background:var(--off);cursor:pointer;flex-shrink:0}
+.hk{min-width:82px;padding:7px 12px;border-radius:10px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:12px;cursor:pointer;transition:.15s;font-family:inherit}
+.hk.lst{border-color:var(--acc2);color:var(--acc2);animation:blk .6s steps(1) infinite}
+@keyframes blk{50%{opacity:.4}}
+.bnav{position:fixed;bottom:0;left:0;right:0;height:64px;background:var(--panel);border-top:1px solid var(--bdr);display:flex;z-index:200;backdrop-filter:blur(20px)}
+.bni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:#3a3a3a;font-size:9px;font-weight:600;transition:color .2s;padding:6px 2px;text-transform:uppercase;letter-spacing:.4px;-webkit-tap-highlight-color:transparent;user-select:none}
+.bni.active{color:var(--acc2)}
+.bni img{width:22px;height:22px;object-fit:contain;filter:brightness(0) invert(.22);transition:filter .2s}
+.bni.active img{filter:none}
+.bni svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.imr{padding:6px 16px 10px;font-size:11px;color:var(--muted);line-height:1.5}
+footer{text-align:center;padding:10px;color:var(--muted);font-size:10px;letter-spacing:.5px}
+.kb-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.88);z-index:10000;justify-content:center;align-items:center;padding:16px;overflow-y:auto}
+.kb-modal.active{display:flex}
+.kb-content{background:var(--panel);border:1px solid var(--bdr);border-radius:16px;padding:16px;max-width:min(1200px,98vw);width:100%}
+.kb-title{font-size:16px;margin-bottom:12px;font-weight:700}
+.kb-row{display:flex;flex-wrap:nowrap;gap:4px;margin-bottom:5px}
+.kb-panels{display:flex;gap:14px;align-items:flex-start;overflow-x:auto}
+.keyboard-panel{flex:1 1 820px;min-width:820px;display:flex;flex-direction:column;gap:5px}
+.mouse-panel{flex:0 0 240px}
+.kb-key{background:rgba(255,255,255,.06);border:1px solid var(--bdr);border-radius:9px;padding:9px 10px;cursor:pointer;font-size:11px;text-align:center;min-width:30px;transition:.12s;white-space:nowrap;flex:0 0 auto}
+.kb-key:hover{background:var(--acc);color:#fff;border-color:transparent}
+.kb-key.wide{min-width:68px}.kb-key.tab{min-width:68px}.kb-key.caps{min-width:82px}.kb-key.enter{min-width:88px}.kb-key.shift{min-width:104px}.kb-key.ctrl{min-width:68px}.kb-key.alt{min-width:50px}.kb-key.space{min-width:220px}
+.mouse-shell{position:relative;width:180px;height:290px;background:linear-gradient(180deg,#111418,#0a0e12);border:2px solid var(--bdr);border-radius:80px;padding:14px;box-sizing:border-box;margin:0 auto}
+.mouse-button{position:absolute;display:flex;align-items:center;justify-content:center;border-radius:12px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:11px;cursor:pointer;transition:.12s}
+.mouse-button:hover{background:var(--acc);border-color:transparent}
+.mouse-left{top:22px;left:12px;width:54px;height:92px;border-radius:28px}.mouse-right{top:22px;right:12px;width:54px;height:92px;border-radius:28px}.mouse-center{top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%}
+.mouse-back{bottom:48px;left:16px;width:46px;height:34px}.mouse-forward{bottom:48px;right:16px;width:46px;height:34px}
+.mouse-label{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--muted)}
+.tnav{background:var(--panel);border-bottom:1px solid var(--bdr);display:flex;overflow-x:auto;scrollbar-width:none;position:sticky;top:57px;z-index:90;backdrop-filter:blur(20px)}
+.tnav::-webkit-scrollbar{display:none}
+.tni{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 22px 8px;cursor:pointer;color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;transition:color .2s;border-bottom:2px solid transparent;user-select:none;-webkit-tap-highlight-color:transparent}
+.tni.active{color:var(--acc2);border-bottom-color:var(--acc2)}
+.tni img{width:20px;height:20px;object-fit:contain;filter:brightness(0) invert(.4);transition:filter .2s}
+.tni.active img{filter:none}
+.tni svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:767px){.tnav{display:none}main{padding-bottom:80px}}
+@media(min-width:768px){.bnav{display:none}}
+.st i.icon-i{font-size:16px;color:var(--muted);flex-shrink:0;width:16px;text-align:center}
+.tni i.icon-i{font-size:18px;color:var(--muted);transition:color .2s;width:20px;text-align:center}
+.tni.active i.icon-i{color:var(--acc2)}
+.bni i.icon-i{font-size:20px;color:#3a3a3a;transition:color .2s}
+.bni.active i.icon-i{color:var(--acc2)}
+#splash-overlay{pointer-events:all;cursor:pointer}
+#splash-overlay.gone{opacity:0;pointer-events:none;transition:opacity .45s ease}
+@keyframes splPulseGlow{0%,100%{filter:drop-shadow(0 0 18px rgba(39,195,111,.45)) drop-shadow(0 0 40px rgba(224,45,47,.22))}50%{filter:drop-shadow(0 0 36px rgba(39,195,111,.85)) drop-shadow(0 0 70px rgba(224,45,47,.45))}}
+@keyframes splHint{0%,100%{opacity:.3}50%{opacity:.65}}
+@keyframes splLetterIn{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes splFadeIn{from{opacity:0}to{opacity:1}}
+.spl-wrap{text-align:center;display:flex;flex-direction:column;align-items:center}
+#spl-bar-wrap{width:min(240px,55vw);height:2px;background:rgba(255,255,255,.08);border-radius:2px;margin-bottom:38px;overflow:hidden}
+#spl-bar{height:100%;width:0%;background:linear-gradient(90deg,#27c36f,#fff 50%,#e02d2f);border-radius:2px;transition:width 1.5s cubic-bezier(.4,0,.2,1)}
+.spl-content{opacity:0;transition:opacity .5s ease;text-align:center}
+.spl-content.show{opacity:1}
+.spl-welcome{font-size:12px;letter-spacing:6px;text-transform:uppercase;color:#4a4a4a;margin-bottom:22px}
+.spl-logo{font-size:50px;font-weight:900;letter-spacing:2px;line-height:1}
+.spl-glow{display:inline-block;animation:splPulseGlow 2.8s ease-in-out infinite}
+.spl-hit{color:#27c36f}.spl-mare{color:#ffffff}.spl-bypass{color:#e02d2f}
+.spl-letter{display:inline-block;opacity:0;animation:splLetterIn .22s ease forwards}
+.spl-user{margin-top:22px;font-size:13px;color:#666;letter-spacing:5px;text-transform:uppercase;animation:splFadeIn .6s ease both;opacity:0}
+.spl-user.show{opacity:1}
+.spl-hint{margin-top:48px;font-size:10px;letter-spacing:4px;color:#333;text-transform:uppercase;animation:splHint 1.8s ease-in-out infinite}
+#watermark-box{display:none;position:fixed;top:62px;right:10px;z-index:300;background:rgba(0,0,0,.78);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:10px;line-height:1.6;pointer-events:none}
+)RAW1")
+    + R"RAW1b(</style></head><body>
+<div id="splash-overlay" onclick="splClick()" style="position:fixed;inset:0;background:#000;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center">
+<div class="spl-wrap">
+<div id="spl-bar-wrap"><div id="spl-bar"></div></div>
+<div class="spl-content" id="spl-content">
+<div class="spl-welcome">Welcome to</div>
+<div class="spl-logo"><span class="spl-glow"><span id="spl-hit-l"></span><span id="spl-mare-l"></span><span style="color:#fff"> </span><span id="spl-bypass-l"></span></span></div>
+<div id="spl-user" class="spl-user">&nbsp;</div>
+<div class="spl-hint">Devam etmek i&#231;in dokun</div>
+</div>
+</div>
+</div>
+<div id="watermark-box">
+<div id="wm-name" style="color:#b46eff;font-weight:700;font-size:11px">User</div>
+<div id="wm-exp" style="color:#666">--</div>
+</div>
+<audio id="cheat-snd" src="/audio/startup.mp3" preload="auto" style="display:none"></audio>
+<header><h1><span class="moon">Moon Private</span></h1>
+<div class="sts"><div class="dot" id="dot"></div><span id="stlbl">Connecting...</span><span class="svd" id="svd">&#10003; Saved</span></div>
+</header>
+<nav class="tnav">
+<div class="tni active" id="tn-aim" onclick="sw('aim')"><i class="fa-solid fa-crosshairs icon-i"></i><span>Aim</span></div>
+<div class="tni" id="tn-esp" onclick="sw('esp')"><i class="fa-solid fa-eye icon-i"></i><span>ESP</span></div>
+<div class="tni" id="tn-veh" onclick="sw('veh')"><i class="fa-solid fa-car icon-i"></i><span>Vehicles</span></div>
+<div class="tni" id="tn-wld" onclick="sw('wld')"><i class="fa-solid fa-bolt icon-i"></i><span>World</span></div>
+<div class="tni" id="tn-plr" onclick="sw('plr')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span>Players</span></div>
+<div class="tni" id="tn-cfg" onclick="sw('cfg')"><i class="fa-solid fa-gear icon-i"></i><span>Settings</span></div>
+<div class="tni" id="tn-lic" onclick="sw('lic')"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>License</span></div>
+</nav>
+<main>
+<div id="bg-art" style="position:fixed;top:57px;left:0;right:0;bottom:64px;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:0">
+<img src="https://i.imgur.com/Q6PuEvx.png" style="width:min(500px,65vw);max-height:55vh;object-fit:contain;opacity:0.13;filter:drop-shadow(0 0 40px rgba(39,195,111,.18))" draggable="false">
+</div>
+<canvas id="snow-cv" style="position:fixed;inset:0;pointer-events:none;z-index:0;opacity:0;transition:opacity 1.2s ease"></canvas>
+<div class="page active" id="page-aim">
+<div class="stbs">
+<div class="stb active" onclick="sst('aim','sa',this)">Silent</div>
+<div class="stb" onclick="sst('aim','mb',this)">Magic Bullet</div>
+<div class="stb" onclick="sst('aim','ab',this)">Aimbot</div>
+<div class="stb" onclick="sst('aim','tb',this)">Triggerbot</div>
+<div class="stb" onclick="sst('aim','wp',this)">Weapon</div>
+</div>
+<div class="sp active" id="aim-sa">
+<div class="sec"><div class="st"><i class="fa-solid fa-crosshairs icon-i"></i>Silent Aim</div><div class="card">
+<div class="row"><label>Enable</label><label class="tog"><input type="checkbox" id="silent_en" onchange="s('silent_en',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Hotkey</label><button class="hk" id="silent_hk_btn" onclick="openKb('silent_hk','silent_hk_btn')">None</button></div>
+<div class="row"><label>Key Mode</label><select id="silent_toggle" onchange="s('silent_toggle',this.value==='1')"><option value="0">Hold</option><option value="1">Toggle</option></select></div>
+<div class="row srow"><label>FOV</label><input type="range" min="10" max="1000" id="silent_fov" oninput="sv('silent_fov_v',this.value)" onchange="s('silent_fov',+this.value)"><span class="v" id="silent_fov_v">150</span></div>
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="600" id="silent_dist" oninput="sv('silent_dist_v',this.value)" onchange="s('silent_dist',+this.value)"><span class="v" id="silent_dist_v">300</span></div>
+<div class="row srow"><label>Miss Chance %</label><input type="range" min="0" max="100" id="silent_miss" oninput="sv('silent_miss_v',this.value)" onchange="s('silent_miss',+this.value)"><span class="v" id="silent_miss_v">0</span></div>
+<div class="row"><label>Bone</label><select id="silent_bone" onchange="s('silent_bone',+this.value)"><option value="0">Head</option><option value="1">Chest</option><option value="2">Legs</option><option value="3">Random</option></select></div>
+<div class="row"><label>Draw FOV Circle</label><label class="tog"><input type="checkbox" id="silent_fov_draw" onchange="s('silent_fov_draw',this.checked)"><span class="tgl"></span></label><input type="color" id="c_silent_fov" onchange="s('c_silent_fov',this.value)"></div>
+<div class="row srow"><label>FOV Weight</label><input type="range" min="1" max="5" id="silent_fov_w" oninput="sv('silent_fov_w_v',this.value)" onchange="s('silent_fov_w',+this.value)"><span class="v" id="silent_fov_w_v">1</span></div>
+<div class="row"><label>Vis Check</label><label class="tog"><input type="checkbox" id="silent_vis" onchange="s('silent_vis',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Skip Friends</label><label class="tog"><input type="checkbox" id="silent_skip" onchange="s('silent_skip',this.checked)"><span class="tgl"></span></label></div>
+</div></div></div>
+<div class="sp" id="aim-mb">
+<div class="sec"><div class="st"><i class="fa-solid fa-crosshairs icon-i"></i>Magic Bullet</div><div class="card">
+<div class="row"><label>Enable</label><label class="tog"><input type="checkbox" id="mb_en" onchange="s('mb_en',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="1000" id="mb_dist" oninput="sv('mb_dist_v',this.value)" onchange="s('mb_dist',+this.value)"><span class="v" id="mb_dist_v">600</span></div>
+<div class="row"><label>Bone</label><select id="mb_bone" onchange="s('mb_bone',+this.value)"><option value="0">Head</option><option value="1">Chest</option><option value="2">Legs</option><option value="3">Random</option></select></div>
+<div class="row"><label>Skip Friends</label><label class="tog"><input type="checkbox" id="mb_skipfr" onchange="s('mb_skipfr',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Skip NPC</label><label class="tog"><input type="checkbox" id="mb_skipnpc" onchange="s('mb_skipnpc',this.checked)"><span class="tgl"></span></label></div>
+</div></div></div>
+<div class="sp" id="aim-ab">
+<div class="sec"><div class="st"><i class="fa-solid fa-crosshairs icon-i"></i>Aimbot</div><div class="card">
+<div class="row"><label>Enable</label><label class="tog"><input type="checkbox" id="aim_en" onchange="s('aim_en',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Hotkey</label><button class="hk" id="aim_hk_btn" onclick="openKb('aim_hk','aim_hk_btn')">None</button></div>
+<div class="row"><label>Key Mode</label><select id="aim_toggle" onchange="s('aim_toggle',this.value==='1')"><option value="0">Hold</option><option value="1">Toggle</option></select></div>
+<div class="row srow"><label>FOV</label><input type="range" min="10" max="360" id="aim_fov" oninput="sv('aim_fov_v',this.value)" onchange="s('aim_fov',+this.value)"><span class="v" id="aim_fov_v">150</span></div>
+<div class="row srow"><label>Smooth</label><input type="range" min="1" max="20" id="aim_smooth" oninput="sv('aim_smooth_v',this.value)" onchange="s('aim_smooth',+this.value)"><span class="v" id="aim_smooth_v">5</span></div>
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="600" id="aim_dist" oninput="sv('aim_dist_v',this.value)" onchange="s('aim_dist',+this.value)"><span class="v" id="aim_dist_v">300</span></div>
+<div class="row"><label>Bone</label><select id="aim_bone" onchange="s('aim_bone',+this.value)"><option value="0">Head</option><option value="1">Chest</option><option value="2">Legs</option><option value="3">Random</option></select></div>
+<div class="row"><label>Aim Mode</label><select id="aim_mode" onchange="s('aim_mode',+this.value)"><option value="0">Memory Write</option><option value="1">Mouse Move</option></select></div>
+<div class="row"><label>Priority</label><select id="aim_prio" onchange="s('aim_prio',+this.value)"><option value="0">Nearest</option><option value="1">FOV Center</option><option value="2">Lowest HP</option></select></div>
+<div class="row"><label>Draw FOV Circle</label><label class="tog"><input type="checkbox" id="aim_fov_draw" onchange="s('aim_fov_draw',this.checked)"><span class="tgl"></span></label><input type="color" id="c_aim_fov" onchange="s('c_aim_fov',this.value)"></div>
+<div class="row srow"><label>FOV Weight</label><input type="range" min="1" max="5" id="aim_fov_w" oninput="sv('aim_fov_w_v',this.value)" onchange="s('aim_fov_w',+this.value)"><span class="v" id="aim_fov_w_v">1</span></div>
+<div class="row"><label>Sticky Aim</label><label class="tog"><input type="checkbox" id="aim_sticky" onchange="s('aim_sticky',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Vis Check</label><label class="tog"><input type="checkbox" id="aim_vis" onchange="s('aim_vis',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Skip Friends</label><label class="tog"><input type="checkbox" id="aim_skip" onchange="s('aim_skip',this.checked)"><span class="tgl"></span></label></div>
+</div></div></div>
+<div class="sp" id="aim-tb">
+<div class="sec"><div class="st"><i class="fa-solid fa-crosshairs icon-i"></i>Triggerbot</div><div class="card">
+<div class="row"><label>Enable</label><label class="tog"><input type="checkbox" id="trig_en" onchange="s('trig_en',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Hotkey</label><button class="hk" id="trig_hk_btn" onclick="openKb('trig_hk','trig_hk_btn')">None</button></div>
+<div class="row srow"><label>Delay (ms)</label><input type="range" min="0" max="500" id="trig_delay" oninput="sv('trig_delay_v',this.value)" onchange="s('trig_delay',+this.value)"><span class="v" id="trig_delay_v">5</span></div>
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="600" id="trig_dist" oninput="sv('trig_dist_v',this.value)" onchange="s('trig_dist',+this.value)"><span class="v" id="trig_dist_v">300</span></div>
+<div class="row"><label>Skip Friends</label><label class="tog"><input type="checkbox" id="trig_skip" onchange="s('trig_skip',this.checked)"><span class="tgl"></span></label></div>
+</div></div></div>
+<div class="sp" id="aim-wp">
+<div class="sec"><div class="st"><i class="fa-solid fa-crosshairs icon-i"></i>Weapon</div><div class="card">
+<div class="row"><label>Infinite Ammo</label><label class="tog"><input type="checkbox" id="wpn_ammo" onchange="s('wpn_ammo',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>No Recoil</label><label class="tog"><input type="checkbox" id="wpn_recoil" onchange="s('wpn_recoil',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>No Spread</label><label class="tog"><input type="checkbox" id="wpn_spread" onchange="s('wpn_spread',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>No Reload</label><label class="tog"><input type="checkbox" id="wpn_reload" onchange="s('wpn_reload',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Rapid Fire</label><label class="tog"><input type="checkbox" id="wpn_rapid" onchange="s('wpn_rapid',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Crosshair</label><label class="tog"><input type="checkbox" id="wpn_crosshair" onchange="s('wpn_crosshair',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Crosshair Type</label><select id="wpn_xtype" onchange="s('wpn_xtype',+this.value)"><option value="0">Type 1</option><option value="1">Type 2</option><option value="2">Type 3</option><option value="3">Type 4</option><option value="4">Type 5</option></select></div>
+<div class="row srow"><label>Crosshair Size</label><input type="range" min="5" max="50" id="wpn_xsize" oninput="sv('wpn_xsize_v',this.value)" onchange="s('wpn_xsize',+this.value)"><span class="v" id="wpn_xsize_v">15</span></div>
+</div></div></div>
+</div>
+)RAW1b"
+    + R"RAW2(<div class="page" id="page-esp">
+<div class="stbs">
+<div class="stb active" onclick="sst('esp','vm',this)">Visual</div>
+<div class="stb" onclick="sst('esp','pi',this)">Player Info</div>
+<div class="stb" onclick="sst('esp','ft',this)">Filters</div>
+</div>
+<div class="sp active" id="esp-vm">
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>RGB ESP</div><div class="card">
+<div class="row"><label>RGB Mode</label><label class="tog"><input type="checkbox" id="esp_rgb" onchange="s('esp_rgb',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>rotation speed</label><input type="range" min="1" max="50" id="esp_rgb_spd_sl" oninput="sv('esp_rgb_spd_v',(this.value/10).toFixed(1)+'x');s('esp_rgb_spd',this.value/10)"><span class="v" id="esp_rgb_spd_v">1.0x</span></div>
+<div class="row srow"><label>satiety</label><input type="range" min="0" max="100" id="esp_rgb_sat_sl" oninput="sv('esp_rgb_sat_v',this.value+'%');s('esp_rgb_sat',this.value/100)"><span class="v" id="esp_rgb_sat_v">100%</span></div>
+<div class="row srow"><label>brightness</label><input type="range" min="10" max="100" id="esp_rgb_val_sl" oninput="sv('esp_rgb_val_v',this.value+'%');s('esp_rgb_val',this.value/100)"><span class="v" id="esp_rgb_val_v">100%</span></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Visual Markers</div><div class="card">
+<div class="row"><label>Vis Check (wall)</label><label class="tog"><input type="checkbox" id="esp_vis" onchange="s('esp_vis',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Visible Color</label><input type="color" id="c_esp_vis" onchange="s('c_esp_vis',this.value)"></div>
+<div class="row"><label>Hidden Color</label><input type="color" id="c_esp_hid" onchange="s('c_esp_hid',this.value)"></div>
+<div class="row"><label>Line Style</label><select id="esp_linetype" onchange="s('esp_linetype',+this.value)"><option value="0">Basic</option><option value="1">Outlined</option></select></div>
+<div class="row srow"><label>Line Weight</label><input type="range" min="1" max="6" id="esp_linew" oninput="sv('esp_linew_v',this.value)" onchange="s('esp_linew',+this.value)"><span class="v" id="esp_linew_v">2</span></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Skeleton</div><div class="card">
+<div class="row"><label>Draw Skeleton</label><label class="tog"><input type="checkbox" id="esp_skel" onchange="s('esp_skel',this.checked)"><span class="tgl"></span></label><input type="color" id="c_esp_skel" onchange="s('c_esp_skel',this.value)"></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Box</div><div class="card">
+<div class="row"><label>Draw Box</label><label class="tog"><input type="checkbox" id="esp_box" onchange="s('esp_box',this.checked)"><span class="tgl"></span></label><input type="color" id="c_esp_box" onchange="s('c_esp_box',this.value)"></div>
+<div class="row"><label>Box Type</label><select id="esp_boxtype" onchange="s('esp_boxtype',+this.value)"><option value="0">Corner</option><option value="1">2D</option><option value="2">3D</option></select></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Line</div><div class="card">
+<div class="row"><label>Draw Line</label><label class="tog"><input type="checkbox" id="esp_line" onchange="s('esp_line',this.checked)"><span class="tgl"></span></label><input type="color" id="c_esp_line" onchange="s('c_esp_line',this.value)"></div>
+<div class="row"><label>Line Origin</label><select id="esp_lineloc" onchange="s('esp_lineloc',+this.value)"><option value="0">Top</option><option value="1">Center</option><option value="2">Bottom</option></select></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Bone Points</div><div class="card">
+<div class="row"><label>Draw Bones</label><label class="tog"><input type="checkbox" id="esp_bone" onchange="s('esp_bone',this.checked)"><span class="tgl"></span></label><input type="color" id="c_esp_bone" onchange="s('c_esp_bone',this.value)"></div>
+<div class="row srow"><label>Bone Radius</label><input type="range" min="1" max="10" id="esp_bone_r" oninput="sv('esp_bone_r_v',this.value)" onchange="s('esp_bone_r',+this.value)"><span class="v" id="esp_bone_r_v">3</span></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Friends ESP</div><div class="card">
+<div class="row"><label>Show Friends</label><label class="tog"><input type="checkbox" id="friend_esp_en" onchange="s('friend_esp_en',this.checked)"><span class="tgl"></span></label><input type="color" id="c_friend_esp" onchange="s('c_friend_esp',this.value)"></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Tag Count ESP</div><div class="card">
+<div class="row"><label>Tag Count</label><label class="tog"><input type="checkbox" id="tagcount_en" onchange="s('tagcount_en',this.checked)"><span class="tgl"></span></label><input type="color" id="c_tagcount" onchange="s('c_tagcount',this.value)"></div>
+<div class="imr">Displays the number of players using the same tag at the top</div>
+</div></div>
+</div>
+<div class="sp" id="esp-pi">
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Player Info</div><div class="card">
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="300" id="pi_maxdist" oninput="sv('pi_maxdist_v',this.value)" onchange="s('pi_maxdist',+this.value)"><span class="v" id="pi_maxdist_v">70</span></div>
+<div class="row"><label>Name</label><label class="tog"><input type="checkbox" id="pi_name" onchange="s('pi_name',this.checked)"><span class="tgl"></span></label><select id="pi_name_loc" onchange="s('pi_name_loc',+this.value)"><option value="0">Top</option><option value="1">Bottom</option></select><input type="color" id="c_pi_name" onchange="s('c_pi_name',this.value)"></div>
+<div class="row"><label>Player ID</label><label class="tog"><input type="checkbox" id="pi_id" onchange="s('pi_id',this.checked)"><span class="tgl"></span></label><select id="pi_id_loc" onchange="s('pi_id_loc',+this.value)"><option value="0">Top</option><option value="1">Bottom</option></select><input type="color" id="c_pi_id" onchange="s('c_pi_id',this.value)"></div>
+<div class="row"><label>Distance</label><label class="tog"><input type="checkbox" id="pi_dist" onchange="s('pi_dist',this.checked)"><span class="tgl"></span></label><select id="pi_dist_loc" onchange="s('pi_dist_loc',+this.value)"><option value="0">Top</option><option value="1">Bottom</option></select><input type="color" id="c_pi_dist" onchange="s('c_pi_dist',this.value)"></div>
+<div class="row"><label>Weapon Name</label><label class="tog"><input type="checkbox" id="pi_weapon" onchange="s('pi_weapon',this.checked)"><span class="tgl"></span></label><select id="pi_wpn_loc" onchange="s('pi_wpn_loc',+this.value)"><option value="0">Top</option><option value="1">Bottom</option></select><input type="color" id="c_pi_weapon" onchange="s('c_pi_weapon',this.value)"></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Status Bars</div><div class="card">
+<div class="row"><label>Health Bar</label><label class="tog"><input type="checkbox" id="sb_hp" onchange="s('sb_hp',this.checked)"><span class="tgl"></span></label><select id="sb_hp_loc" onchange="s('sb_hp_loc',+this.value)"><option value="0">Left</option><option value="1">Right</option><option value="2">Up</option><option value="3">Down</option></select></div>
+<div class="row"><label>Armor Bar</label><label class="tog"><input type="checkbox" id="sb_armor" onchange="s('sb_armor',this.checked)"><span class="tgl"></span></label><select id="sb_armor_loc" onchange="s('sb_armor_loc',+this.value)"><option value="0">Left</option><option value="1">Right</option><option value="2">Up</option><option value="3">Down</option></select></div>
+</div></div>
+</div>
+<div class="sp" id="esp-ft">
+<div class="sec"><div class="st"><i class="fa-solid fa-eye icon-i"></i>Filters</div><div class="card">
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="800" id="esp_dist" oninput="sv('esp_dist_v',this.value)" onchange="s('esp_dist',+this.value)"><span class="v" id="esp_dist_v">300</span></div>
+<div class="row"><label>Hide NPC</label><label class="tog"><input type="checkbox" id="esp_noped" onchange="s('esp_noped',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Hide Dead</label><label class="tog"><input type="checkbox" id="esp_nodead" onchange="s('esp_nodead',this.checked)"><span class="tgl"></span></label></div>
+</div></div>
+</div>
+</div>
+<div class="page" id="page-veh">
+<div class="sec"><div class="st"><i class="fa-solid fa-car icon-i"></i>Vehicle ESP</div><div class="card">
+<div class="row"><label>Draw Point</label><label class="tog"><input type="checkbox" id="veh_pt" onchange="s('veh_pt',this.checked)"><span class="tgl"></span></label><input type="color" id="c_veh_pt" onchange="s('c_veh_pt',this.value)"></div>
+<div class="row srow"><label>Point Size</label><input type="range" min="2" max="20" id="veh_pt_size" oninput="sv('veh_pt_size_v',this.value)" onchange="s('veh_pt_size',+this.value)"><span class="v" id="veh_pt_size_v">7</span></div>
+<div class="row"><label>Draw Line</label><label class="tog"><input type="checkbox" id="veh_ln" onchange="s('veh_ln',this.checked)"><span class="tgl"></span></label><input type="color" id="c_veh_ln" onchange="s('c_veh_ln',this.value)"></div>
+<div class="row"><label>Line Origin</label><select id="veh_ln_loc" onchange="s('veh_ln_loc',+this.value)"><option value="0">Top</option><option value="1">Center</option><option value="2">Bottom</option></select></div>
+<div class="row"><label>Draw Distance</label><label class="tog"><input type="checkbox" id="veh_dist_en" onchange="s('veh_dist_en',this.checked)"><span class="tgl"></span></label><input type="color" id="c_veh_dist" onchange="s('c_veh_dist',this.value)"></div>
+<div class="row"><label>Health Bar</label><label class="tog"><input type="checkbox" id="veh_hp" onchange="s('veh_hp',this.checked)"><span class="tgl"></span></label></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-car icon-i"></i>Filters</div><div class="card">
+<div class="row"><label>Ignore Local Vehicle</label><label class="tog"><input type="checkbox" id="veh_ignlocal" onchange="s('veh_ignlocal',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Max Count</label><input type="range" min="10" max="1000" id="veh_maxcount" oninput="sv('veh_maxcount_v',this.value)" onchange="s('veh_maxcount',+this.value)"><span class="v" id="veh_maxcount_v">500</span></div>
+<div class="row srow"><label>Max Distance</label><input type="range" min="10" max="800" id="veh_maxdist" oninput="sv('veh_maxdist_v',this.value)" onchange="s('veh_maxdist',+this.value)"><span class="v" id="veh_maxdist_v">300</span></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-car icon-i"></i>Vehicle Fix</div><div class="card">
+<div class="row"><label>Auto Repair</label><label class="tog"><input type="checkbox" id="veh_fix" onchange="s('veh_fix',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Repair Hotkey</label><button class="hk" id="veh_fix_hk_btn" onclick="openKb('veh_fix_hk','veh_fix_hk_btn')">None</button></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-car icon-i"></i>Vehicle God Mode</div><div class="card">
+<div class="row"><label>Enabled</label><label class="tog"><input type="checkbox" id="veh_god" onchange="s('veh_god',this.checked)"><span class="tgl"></span></label></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-car icon-i"></i>Speed Boost</div><div class="card">
+<div class="row"><label>Enabled</label><label class="tog"><input type="checkbox" id="veh_spd" onchange="s('veh_spd',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Target Speed</label><input type="range" min="50" max="500" id="veh_spd_kmh" oninput="sv('veh_spd_kmh_v',this.value+' km/h')" onchange="s('veh_spd_kmh',+this.value)"><span class="v" id="veh_spd_kmh_v">150 km/h</span></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-car icon-i"></i>Vehicle Flip</div><div class="card">
+<div class="row"><label>Enabled</label><label class="tog"><input type="checkbox" id="veh_flip" onchange="s('veh_flip',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Flip Hotkey</label><button class="hk" id="veh_flip_hk_btn" onclick="openKb('veh_flip_hk','veh_flip_hk_btn')">None</button></div>
+</div></div>
+</div>
+)RAW2"
+    + R"RAW3(<div class="page" id="page-wld">
+<div class="sec"><div class="st"><i class="fa-solid fa-bolt icon-i"></i>NoClip</div><div class="card">
+<div class="row"><label>Enable NoClip</label><label class="tog"><input type="checkbox" id="w_noclip" onchange="s('w_noclip',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Speed</label><input type="range" min="1" max="30" id="w_noclip_spd" oninput="sv('w_noclip_spd_v',this.value)" onchange="s('w_noclip_spd',+this.value)"><span class="v" id="w_noclip_spd_v">5</span></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-bolt icon-i"></i>World Cheats</div><div class="card">
+<div class="row"><label>Semi God Mode</label><label class="tog"><input type="checkbox" id="w_semigod" onchange="s('w_semigod',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Super Sprint</label><label class="tog"><input type="checkbox" id="w_sprint" onchange="s('w_sprint',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Sprint Speed</label><input type="range" min="1" max="20" id="w_sprintspd" oninput="sv('w_sprintspd_v',this.value)" onchange="s('w_sprintspd',+this.value)"><span class="v" id="w_sprintspd_v">5</span></div>
+<div class="row"><label>Infinite Stamina</label><label class="tog"><input type="checkbox" id="w_stamina" onchange="s('w_stamina',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Explosive Bullets</label><label class="tog"><input type="checkbox" id="w_explode" onchange="s('w_explode',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Fire Bullets</label><label class="tog"><input type="checkbox" id="w_fire" onchange="s('w_fire',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Heal Toggle (HP/Armor)</label><label class="tog"><input type="checkbox" id="w_healtoggle" onchange="s('w_healtoggle',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Heal Tuşu</label><button class="hk" id="w_healtogglekey_btn" onclick="openKb('w_healtogglekey','w_healtogglekey_btn')">None</button></div>
+<div class="row"><label>Armor Fill</label><label class="tog"><input type="checkbox" id="w_armorfill" onchange="s('w_armorfill',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Armor Tuşu</label><button class="hk" id="w_armorfillkey_btn" onclick="openKb('w_armorfillkey','w_armorfillkey_btn')">None</button></div>
+<div class="row"><label>Damage Boost</label><label class="tog"><input type="checkbox" id="w_damageboost" onchange="s('w_damageboost',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow" id="damagemul_row"><label>Damage Multiplier</label><input type="range" min="10" max="50" step="1" id="w_damagemul_sl" oninput="sv('w_damagemul_v',this.value/10+'x');s('w_damagemul',this.value/10)" ><span class="v" id="w_damagemul_v">2x</span></div>
+<div class="row"><label>Low Damage</label><label class="tog"><input type="checkbox" id="w_lowdamage" onchange="s('w_lowdamage',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Low Damage Çarpanı</label><input type="range" min="10" max="100" step="1" id="w_lowdamagemul_sl" oninput="sv('w_lowdamagemul_v',this.value/10+'x');s('w_lowdamagemul',this.value/10)"><span class="v" id="w_lowdamagemul_v">2x</span></div>
+<div class="row"><label>Auto Respawn on Death</label><label class="tog"><input type="checkbox" id="w_respawn" onchange="s('w_respawn',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Unlock Car (ModKey + F)</label><label class="tog"><input type="checkbox" id="w_unlockcar" onchange="s('w_unlockcar',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Modifier Key</label><button class="hk" id="w_unlockcar_mk_btn" onclick="openKb('w_unlockcar_mk','w_unlockcar_mk_btn')">None</button></div>
+<div class="row"><label>Invisible</label><label class="tog"><input type="checkbox" id="w_invisible" onchange="s('w_invisible',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Invisible HotKey</label><button class="hk" id="w_invisible_hk_btn" onclick="openKb('w_invisible_hk','w_invisible_hk_btn')">None</button></div>
+<div class="row"><label>Spectator Detection</label><label class="tog"><input type="checkbox" id="w_spectdet" onchange="s('w_spectdet',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Detect Threshold (tick)</label><input type="range" min="1" max="20" id="w_spectdet_thr" oninput="sv('w_spectdet_thr_v',this.value)" onchange="s('w_spectdet_thr',+this.value)"><span class="v" id="w_spectdet_thr_v">8</span></div>
+<div class="row"><label>Low Gravity</label><label class="tog"><input type="checkbox" id="w_lowgrav" onchange="s('w_lowgrav',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Gravity Strength (0–1)</label><input type="range" min="0" max="100" id="w_lowgrav_str_sl" oninput="sv('w_lowgrav_str_v',(this.value/100).toFixed(2));s('w_lowgrav_str',this.value/100)"><span class="v" id="w_lowgrav_str_v">0.65</span></div>
+<div class="row"><label>Moon Jump (Space)</label><label class="tog"><input type="checkbox" id="w_moonjump" onchange="s('w_moonjump',this.checked)"><span class="tgl"></span></label></div>
+<div class="row srow"><label>Jump Force</label><input type="range" min="1" max="30" id="w_moonjump_f_sl" oninput="sv('w_moonjump_f_v',(this.value/10).toFixed(1));s('w_moonjump_f',this.value/10)"><span class="v" id="w_moonjump_f_v">0.4</span></div>
+</div></div>
+</div>
+)RAW3"
+    + R"RAW3B(<div class="page" id="page-plr">
+<div class="sec"><div class="st"><svg viewBox="0 0 24 24" style="width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>Player List</div>
+<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap">
+<button onclick="refreshPlr()" style="padding:6px 14px;border-radius:6px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:12px;cursor:pointer">Refresh</button>
+<button id="offscreen-btn" onclick="toggleOffscreen()" style="padding:6px 14px;border-radius:6px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:12px;cursor:pointer;transition:.2s">Offscreen ESP</button>
+</div>
+<div class="card" id="plr-list"><div class="row" style="color:var(--muted);font-size:12px">Loading...</div></div>
+</div></div>
+<div class="page" id="page-cfg">
+<div class="sec"><div class="st"><i class="fa-solid fa-gear icon-i"></i>General</div><div class="card">
+<div class="row"><label>Stream Proof</label><label class="tog"><input type="checkbox" id="s_stream" onchange="s('s_stream',this.checked)"><span class="tgl"></span></label></div>
+<div class="row"><label>Theme</label><select id="s_theme" onchange="s('s_theme',+this.value)"><option value="0">Emerald</option><option value="1">Ocean</option><option value="2">Rose</option></select></div>
+<div class="row srow"><label>Max Players Scan</label><input type="range" min="10" max="1000" id="s_maxplrs" oninput="sv('s_maxplrs_v',this.value)" onchange="s('s_maxplrs',+this.value)"><span class="v" id="s_maxplrs_v">500</span></div>
+<div class="row"><label>Watermark</label><label class="tog"><input type="checkbox" id="wm_toggle" onchange="s('s_watermark',this.checked)"><span class="tgl"></span></label></div>
+<div class="row" style="flex-wrap:wrap;gap:6px"><label>Discord Webhook</label><div style="display:flex;flex:1;min-width:0;gap:6px"><input type="text" id="s_discord_wh" placeholder="https://discord.com/api/webhooks/..." style="flex:1;min-width:0;background:var(--off);border:1px solid var(--bdr);border-radius:6px;padding:5px 8px;color:var(--txt);font-size:11px;outline:none" onchange="s('s_discord_wh',this.value)"><button onclick="s('s_discord_wh_test','1')" style="padding:5px 12px;border-radius:6px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:11px;cursor:pointer;white-space:nowrap">Test</button></div></div>
+</div></div>
+<div class="sec"><div class="st"><i class="fa-solid fa-gear icon-i"></i>Info</div><div class="card">
+<div class="row" style="flex-direction:column;align-items:flex-start;gap:8px;padding:14px 16px">
+  <span style="font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted)">Panel Adresi (Telefon)</span>
+  <div style="display:flex;align-items:center;gap:10px;width:100%">
+    <span id="portlbl" style="font-size:15px;font-weight:600;color:var(--acc);letter-spacing:.5px;flex:1">...</span>
+    <button onclick="cpAddr()" id="cpbtn" style="padding:5px 14px;border-radius:6px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:11px;cursor:pointer;transition:.15s">Kopyala</button>
+  </div>
+  <span style="font-size:11px;color:var(--muted)">Telefon ve PC ayn&#305; WiFi&#8217;da olmal&#305;</span>
+</div>
+<div class="row"><label>Game Version</label><span id="gver" style="color:var(--muted);font-size:12px">-</span></div>
+</div></div>
+</div>
+<div class="page" id="page-lic">
+<div class="sec"><div class="st"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>&nbsp;License</div><div class="card">
+<div id="lic-status" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;font-size:13px;background:var(--off);color:var(--muted)">Checking license...</div>
+<div class="row"><label>Expiry</label><span id="lic-exp" style="font-size:12px;color:var(--muted)">-</span></div>
+<div style="height:16px"></div>
+<div class="row" style="flex-direction:column;align-items:flex-start;gap:8px">
+</div>
+<div style="height:8px"></div>
+</div></div>
+</div>
+<nav class="bnav">
+<div class="bni active" id="bn-aim" onclick="sw('aim')"><i class="fa-solid fa-crosshairs icon-i"></i><span>Aim</span></div>
+<div class="bni" id="bn-esp" onclick="sw('esp')"><i class="fa-solid fa-eye icon-i"></i><span>ESP</span></div>
+<div class="bni" id="bn-veh" onclick="sw('veh')"><i class="fa-solid fa-car icon-i"></i><span>Vehicles</span></div>
+<div class="bni" id="bn-wld" onclick="sw('wld')"><i class="fa-solid fa-bolt icon-i"></i><span>World</span></div>
+<div class="bni" id="bn-plr" onclick="sw('plr')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span>Players</span></div>
+<div class="bni" id="bn-cfg" onclick="sw('cfg')"><i class="fa-solid fa-gear icon-i"></i><span>Settings</span></div>
+<div class="bni" id="bn-lic" onclick="sw('lic')"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>License</span></div>
+</nav>
+</main>
+)RAW3B"
+    + R"RAW3C(<footer>Developed By Moon &mdash; Private Build</footer>
+<div class="kb-modal" id="kb-modal"><div class="kb-content"><div class="kb-title">Select Key Bind</div><div class="kb-panels"><div class="keyboard-panel"><div class="kb-row"><div class="kb-key" data-key="27">Esc</div><div class="kb-key" data-key="112">F1</div><div class="kb-key" data-key="113">F2</div><div class="kb-key" data-key="114">F3</div><div class="kb-key" data-key="115">F4</div><div class="kb-key" data-key="116">F5</div><div class="kb-key" data-key="117">F6</div><div class="kb-key" data-key="118">F7</div><div class="kb-key" data-key="119">F8</div><div class="kb-key" data-key="120">F9</div><div class="kb-key" data-key="121">F10</div><div class="kb-key" data-key="122">F11</div><div class="kb-key" data-key="123">F12</div></div><div class="kb-row"><div class="kb-key wide" data-key="192">`</div><div class="kb-key" data-key="49">1</div><div class="kb-key" data-key="50">2</div><div class="kb-key" data-key="51">3</div><div class="kb-key" data-key="52">4</div><div class="kb-key" data-key="53">5</div><div class="kb-key" data-key="54">6</div><div class="kb-key" data-key="55">7</div><div class="kb-key" data-key="56">8</div><div class="kb-key" data-key="57">9</div><div class="kb-key" data-key="48">0</div><div class="kb-key" data-key="189">-</div><div class="kb-key" data-key="187">=</div><div class="kb-key backspace" data-key="8">Bksp</div></div><div class="kb-row"><div class="kb-key tab wide" data-key="9">Tab</div><div class="kb-key" data-key="81">Q</div><div class="kb-key" data-key="87">W</div><div class="kb-key" data-key="69">E</div><div class="kb-key" data-key="82">R</div><div class="kb-key" data-key="84">T</div><div class="kb-key" data-key="89">Y</div><div class="kb-key" data-key="85">U</div><div class="kb-key" data-key="73">I</div><div class="kb-key" data-key="79">O</div><div class="kb-key" data-key="80">P</div><div class="kb-key" data-key="219">[</div><div class="kb-key" data-key="221">]</div><div class="kb-key" data-key="220">\</div></div><div class="kb-row"><div class="kb-key caps wide" data-key="20">Caps</div><div class="kb-key" data-key="65">A</div><div class="kb-key" data-key="83">S</div><div class="kb-key" data-key="68">D</div><div class="kb-key" data-key="70">F</div><div class="kb-key" data-key="71">G</div><div class="kb-key" data-key="72">H</div><div class="kb-key" data-key="74">J</div><div class="kb-key" data-key="75">K</div><div class="kb-key" data-key="76">L</div><div class="kb-key" data-key="186">;</div><div class="kb-key" data-key="222">'</div><div class="kb-key enter wide" data-key="13">Enter</div></div><div class="kb-row"><div class="kb-key shift wide" data-key="16">Shift</div><div class="kb-key" data-key="90">Z</div><div class="kb-key" data-key="88">X</div><div class="kb-key" data-key="67">C</div><div class="kb-key" data-key="86">V</div><div class="kb-key" data-key="66">B</div><div class="kb-key" data-key="78">N</div><div class="kb-key" data-key="77">M</div><div class="kb-key" data-key="188">,</div><div class="kb-key" data-key="190">.</div><div class="kb-key" data-key="191">/</div><div class="kb-key shift wide" data-key="16">Shift</div></div><div class="kb-row"><div class="kb-key ctrl wide" data-key="17">Ctrl</div><div class="kb-key alt" data-key="18">Alt</div><div class="kb-key space" data-key="32">Space</div><div class="kb-key alt" data-key="18">Alt</div><div class="kb-key ctrl wide" data-key="17">Ctrl</div></div></div><div class="mouse-panel"><div class="mouse-shell"><div class="mouse-button mouse-left" data-key="1">LMB</div><div class="mouse-button mouse-right" data-key="2">RMB</div><div class="mouse-button mouse-center" data-key="4">MMB</div><div class="mouse-button mouse-back" data-key="5">X1</div><div class="mouse-button mouse-forward" data-key="6">X2</div><div class="mouse-label">Mouse</div></div></div></div></div></div>
+<script>
+function sw(id){
+  document.querySelectorAll('.bni,.tni').forEach(t=>t.classList.toggle('active',t.id==='bn-'+id||t.id==='tn-'+id));
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+id));
+  if(id==='plr') refreshPlr();
+  if(id==='lic') refreshLic();
+}
+async function refreshLic(){
+  try{
+    const r=await fetch('/api/license');
+    const d=await r.json();
+    const st=document.getElementById('lic-status');
+    const hw=document.getElementById('lic-hwid');
+    const ex=document.getElementById('lic-exp');
+    if(hw) hw.textContent=d.hwid||'-';
+    if(ex){
+      if(d.expired){
+        ex.textContent='EXPIRED'; ex.style.color='#dc4646';
+      } else if(d.expires_at){
+        const dt=new Date(d.expires_at);
+        const diff=Math.ceil((dt-Date.now())/86400000);
+        ex.textContent=d.expires_at+' ('+diff+'d left)';
+        ex.style.color=diff<=7?'#f0a040':'var(--muted)';
+      } else {
+        ex.textContent='Lifetime'; ex.style.color='var(--muted)';
+      }
+    }
+    if(st){
+      if(d.expired){
+        st.textContent='✗ License expired — contact support to renew';
+        st.style.background='rgba(220,150,0,.15)';
+        st.style.color='#f0a040';
+      } else if(d.valid){
+        st.textContent='✓ License valid';
+        st.style.background='rgba(80,220,120,.15)';
+        st.style.color='#50dc78';
+      } else if(d.checked){
+        st.textContent='✗ Not activated — enter your key below';
+        st.style.background='rgba(220,70,70,.15)';
+        st.style.color='#dc4646';
+      } else {
+        st.textContent='Checking license...';
+        st.style.background='var(--off)';
+        st.style.color='var(--muted)';
+      }
+    }
+  }catch(e){}
+}
+async function licActivate(){
+  const k=document.getElementById('lic-key').value.trim();
+  const msg=document.getElementById('lic-msg');
+  const btn=document.getElementById('lic-btn');
+  if(!k){msg.textContent='Enter a key first';msg.style.color='#dc4646';return;}
+  btn.disabled=true; btn.textContent='...';
+  try{
+    const r=await fetch('/api/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})});
+    const d=await r.json();
+    if(d.ok){
+      msg.textContent='✓ Activated successfully!';
+      msg.style.color='#50dc78';
+      refreshLic();
+    } else {
+      msg.textContent='✗ '+(d.error||'Invalid key');
+      msg.style.color='#dc4646';
+    }
+  }catch(e){
+    msg.textContent='Connection error';
+    msg.style.color='#dc4646';
+  }
+  btn.disabled=false; btn.textContent='Activate';
+}
+function sst(pg,id,el){
+  const cont=document.getElementById('page-'+pg);
+  cont.querySelectorAll('.stb').forEach(t=>t.classList.remove('active'));
+  cont.querySelectorAll('.sp').forEach(p=>p.classList.remove('active'));
+  if(el)el.classList.add('active');
+  const sp=document.getElementById(pg+'-'+id);if(sp)sp.classList.add('active');
+}
+function sv(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+let _st;
+async function s(k,v){
+  const b={};b[k]=v;
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+  const el=document.getElementById('svd');el.classList.add('show');clearTimeout(_st);_st=setTimeout(()=>el.classList.remove('show'),1500);
+}
+function vkName(c){
+  const n={0:'None',1:'LMB',2:'RMB',4:'MMB',5:'X1MB',6:'X2MB',8:'Backspace',9:'Tab',13:'Enter',16:'Shift',17:'Ctrl',18:'Alt',19:'Pause',20:'CapsLock',27:'Esc',32:'Space',33:'PgUp',34:'PgDn',35:'End',36:'Home',37:'Left',38:'Up',39:'Right',40:'Down',44:'PrtSc',45:'Insert',46:'Delete',112:'F1',113:'F2',114:'F3',115:'F4',116:'F5',117:'F6',118:'F7',119:'F8',120:'F9',121:'F10',122:'F11',123:'F12',160:'LShift',161:'RShift',162:'LCtrl',163:'RCtrl',164:'LAlt',165:'RAlt'};
+  if(n[c])return n[c];
+  if(c>=65&&c<=90)return String.fromCharCode(c);
+  if(c>=48&&c<=57)return String.fromCharCode(c);
+  if(c>=96&&c<=105)return 'Num'+(c-96);
+  return 'VK'+c;
+}
+let _lkH=null,_lkT=null,_lkId=null,_lkBtn=null;
+function lk(id,btnId){
+  const btn=document.getElementById(btnId);
+  if(_lkH){document.removeEventListener('keydown',_lkH,true);clearTimeout(_lkT);if(_lkBtn)_lkBtn.classList.remove('lst');}
+  _lkId=id;_lkBtn=btn;btn.textContent='Press key...';btn.classList.add('lst');
+  _lkH=function(e){e.preventDefault();const vk=e.keyCode;btn.textContent=vkName(vk);btn.classList.remove('lst');s(id,vk);document.removeEventListener('keydown',_lkH,true);_lkH=null;clearTimeout(_lkT);};
+  document.addEventListener('keydown',_lkH,true);
+  _lkT=setTimeout(()=>{if(_lkH){document.removeEventListener('keydown',_lkH,true);_lkH=null;btn.classList.remove('lst');}},5000);
+}
+function cp(id,v){const e=document.getElementById(id);if(e)e.value=v;}
+function applyUI(d){
+  const cb=(id,v)=>{const e=document.getElementById(id);if(e)e.checked=!!v;};
+  const sl=(id,v)=>{const e=document.getElementById(id);if(e){e.value=v;const l=document.getElementById(id+'_v');if(l)l.textContent=v;}};
+  const se=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v;};
+  const hk=(btnId,v)=>{const e=document.getElementById(btnId);if(e)e.textContent=vkName(v);};
+  cb('silent_en',d.silent_en);hk('silent_hk_btn',d.silent_hk);if(document.getElementById('silent_toggle'))document.getElementById('silent_toggle').value=d.silent_toggle?'1':'0';sl('silent_fov',d.silent_fov);sl('silent_dist',d.silent_dist);sl('silent_miss',d.silent_miss);se('silent_bone',d.silent_bone);cb('silent_fov_draw',d.silent_fov_draw);sl('silent_fov_w',d.silent_fov_w);cp('c_silent_fov',d.c_silent_fov);cb('silent_vis',d.silent_vis);cb('silent_skip',d.silent_skip);
+  cb('mb_en',d.mb_en);sl('mb_dist',d.mb_dist);se('mb_bone',d.mb_bone);cb('mb_skipfr',d.mb_skipfr);cb('mb_skipnpc',d.mb_skipnpc);
+  cb('aim_en',d.aim_en);hk('aim_hk_btn',d.aim_hk);if(document.getElementById('aim_toggle'))document.getElementById('aim_toggle').value=d.aim_toggle?'1':'0';sl('aim_fov',d.aim_fov);sl('aim_smooth',d.aim_smooth);sl('aim_dist',d.aim_dist);se('aim_bone',d.aim_bone);se('aim_mode',d.aim_mode);se('aim_prio',d.aim_prio);cb('aim_fov_draw',d.aim_fov_draw);sl('aim_fov_w',d.aim_fov_w);cp('c_aim_fov',d.c_aim_fov);cb('aim_sticky',d.aim_sticky);cb('aim_vis',d.aim_vis);cb('aim_skip',d.aim_skip);
+  cb('trig_en',d.trig_en);hk('trig_hk_btn',d.trig_hk);sl('trig_delay',d.trig_delay);sl('trig_dist',d.trig_dist);cb('trig_skip',d.trig_skip);
+  cb('wpn_ammo',d.wpn_ammo);cb('wpn_recoil',d.wpn_recoil);cb('wpn_spread',d.wpn_spread);cb('wpn_reload',d.wpn_reload);cb('wpn_rapid',d.wpn_rapid);cb('wpn_crosshair',d.wpn_crosshair);se('wpn_xtype',d.wpn_xtype);sl('wpn_xsize',d.wpn_xsize);
+  cb('esp_rgb',d.esp_rgb);if(document.getElementById('esp_rgb_spd_sl')){document.getElementById('esp_rgb_spd_sl').value=Math.round((d.esp_rgb_spd||1)*10);sv('esp_rgb_spd_v',((d.esp_rgb_spd||1)).toFixed(1)+'x');}if(document.getElementById('esp_rgb_sat_sl')){document.getElementById('esp_rgb_sat_sl').value=Math.round((d.esp_rgb_sat||1)*100);sv('esp_rgb_sat_v',Math.round((d.esp_rgb_sat||1)*100)+'%');}if(document.getElementById('esp_rgb_val_sl')){document.getElementById('esp_rgb_val_sl').value=Math.round((d.esp_rgb_val||1)*100);sv('esp_rgb_val_v',Math.round((d.esp_rgb_val||1)*100)+'%');}
+  cb('esp_vis',d.esp_vis);cp('c_esp_vis',d.c_esp_vis);cp('c_esp_hid',d.c_esp_hid);se('esp_linetype',d.esp_linetype);sl('esp_linew',d.esp_linew);
+  cb('friend_esp_en',d.friend_esp_en);cp('c_friend_esp',d.c_friend_esp);cb('tagcount_en',d.tagcount_en);cp('c_tagcount',d.c_tagcount);
+  cb('esp_skel',d.esp_skel);cp('c_esp_skel',d.c_esp_skel);cb('esp_box',d.esp_box);se('esp_boxtype',d.esp_boxtype);cp('c_esp_box',d.c_esp_box);
+  cb('esp_line',d.esp_line);se('esp_lineloc',d.esp_lineloc);cp('c_esp_line',d.c_esp_line);cb('esp_bone',d.esp_bone);sl('esp_bone_r',d.esp_bone_r);cp('c_esp_bone',d.c_esp_bone);
+  sl('esp_dist',d.esp_dist);cb('esp_noped',d.esp_noped);cb('esp_nodead',d.esp_nodead);
+  {const btn=document.getElementById('offscreen-btn');if(btn&&d.esp_offscreen){btn.classList.add('active');btn.style.background='var(--acc)';btn.style.color='#000';btn.textContent='Offscreen ESP ■';}}
+  sl('pi_maxdist',d.pi_maxdist);cb('pi_name',d.pi_name);se('pi_name_loc',d.pi_name_loc);cp('c_pi_name',d.c_pi_name);cb('pi_id',d.pi_id);se('pi_id_loc',d.pi_id_loc);cp('c_pi_id',d.c_pi_id);cb('pi_dist',d.pi_dist);se('pi_dist_loc',d.pi_dist_loc);cp('c_pi_dist',d.c_pi_dist);cb('pi_weapon',d.pi_weapon);se('pi_wpn_loc',d.pi_wpn_loc);cp('c_pi_weapon',d.c_pi_weapon);
+  cb('sb_hp',d.sb_hp);se('sb_hp_loc',d.sb_hp_loc);cb('sb_armor',d.sb_armor);se('sb_armor_loc',d.sb_armor_loc);
+  cb('veh_pt',d.veh_pt);cp('c_veh_pt',d.c_veh_pt);sl('veh_pt_size',d.veh_pt_size);cb('veh_ln',d.veh_ln);cp('c_veh_ln',d.c_veh_ln);se('veh_ln_loc',d.veh_ln_loc);cb('veh_dist_en',d.veh_dist_en);cp('c_veh_dist',d.c_veh_dist);cb('veh_hp',d.veh_hp);cb('veh_ignlocal',d.veh_ignlocal);sl('veh_maxcount',d.veh_maxcount);sl('veh_maxdist',d.veh_maxdist);cb('veh_fix',d.veh_fix);hk('veh_fix_hk_btn',d.veh_fix_hk);
+  cb('veh_god',d.veh_god);cb('veh_spd',d.veh_spd);if(d.veh_spd_kmh){sl('veh_spd_kmh',d.veh_spd_kmh);sv('veh_spd_kmh_v',d.veh_spd_kmh+' km/h');}cb('veh_flip',d.veh_flip);hk('veh_flip_hk_btn',d.veh_flip_hk);
+  cb('w_noclip',d.w_noclip);sl('w_noclip_spd',d.w_noclip_spd);cb('w_semigod',d.w_semigod);cb('w_sprint',d.w_sprint);sl('w_sprintspd',d.w_sprintspd);cb('w_stamina',d.w_stamina);cb('w_explode',d.w_explode);cb('w_fire',d.w_fire);cb('w_healtoggle',d.w_healtoggle);hk('w_healtogglekey_btn',d.w_healtogglekey);cb('w_armorfill',d.w_armorfill);hk('w_armorfillkey_btn',d.w_armorfillkey);
+  cb('w_damageboost',d.w_damageboost);if(document.getElementById('w_damagemul_sl')){document.getElementById('w_damagemul_sl').value=Math.round((d.w_damagemul||2)*10);sv('w_damagemul_v',(d.w_damagemul||2)+'x');}
+  cb('w_lowdamage',d.w_lowdamage);if(document.getElementById('w_lowdamagemul_sl')){document.getElementById('w_lowdamagemul_sl').value=Math.round((d.w_lowdamagemul||2)*10);sv('w_lowdamagemul_v',(d.w_lowdamagemul||2)+'x');}cb('w_respawn',d.w_respawn);cb('w_unlockcar',d.w_unlockcar);hk('w_unlockcar_mk_btn',d.w_unlockcar_mk);cb('w_invisible',d.w_invisible);hk('w_invisible_hk_btn',d.w_invisible_hk);
+  cb('w_spectdet',d.w_spectdet);if(document.getElementById('w_spectdet_thr')){document.getElementById('w_spectdet_thr').value=d.w_spectdet_thr||8;sv('w_spectdet_thr_v',d.w_spectdet_thr||8);}
+  cb('w_lowgrav',d.w_lowgrav);if(document.getElementById('w_lowgrav_str_sl')){document.getElementById('w_lowgrav_str_sl').value=Math.round((d.w_lowgrav_str||0.65)*100);sv('w_lowgrav_str_v',(d.w_lowgrav_str||0.65).toFixed(2));}
+  cb('w_moonjump',d.w_moonjump);if(document.getElementById('w_moonjump_f_sl')){document.getElementById('w_moonjump_f_sl').value=Math.round((d.w_moonjump_f||0.4)*10);sv('w_moonjump_f_v',(d.w_moonjump_f||0.4).toFixed(1));}
+  cb('s_stream',d.s_stream);cb('wm_toggle',d.s_watermark);se('s_theme',d.s_theme);sl('s_maxplrs',d.s_maxplrs);
+  if(document.getElementById('s_discord_wh'))document.getElementById('s_discord_wh').value=d.s_discord_wh||'';
+}
+async function load(){try{const r=await fetch('/api/settings');applyUI(await r.json());}catch(e){}}
+var _prevConn=false;
+async function poll(){
+  try{
+    const r=await fetch('/api/status');const d=await r.json();
+    document.getElementById('dot').className='dot'+(d.connected?' on':'');
+    document.getElementById('stlbl').textContent=d.connected?('FiveM v'+d.version+' Connected'):'Waiting for FiveM...';
+    if(d.connected&&!_prevConn){const snd=document.getElementById('cheat-snd');if(snd)snd.play().catch(()=>{});}
+    _prevConn=d.connected;
+    const gv=document.getElementById('gver');if(gv)gv.textContent=d.version||'-';
+    const addr=(d.ip&&d.ip!=='127.0.0.1'?d.ip:'localhost')+':'+d.port;
+    const pl=document.getElementById('portlbl');if(pl)pl.textContent=addr;
+    const dmr=document.getElementById('damagemul_row');if(dmr)dmr.style.display=d.connected?'':'none';
+  }catch(e){}
+}
+function cpAddr(){const t=document.getElementById('portlbl');if(!t)return;navigator.clipboard.writeText('http://'+t.textContent).then(()=>{const b=document.getElementById('cpbtn');if(b){b.textContent='Kopyalandı ✓';setTimeout(()=>{b.textContent='Kopyala';},1500);}});}
+load();poll();setInterval(poll,3000);initSplash();initWm();runSplashAnim();
+)RAW3C"
+    + R"RAW4(function openKb(id,btnId){_lkId=id;_lkBtn=document.getElementById(btnId);document.getElementById('kb-modal').classList.add('active');}
+function closeKb(){document.getElementById('kb-modal').classList.remove('active');}
+function selectKey(key){const code=parseInt(key);s(_lkId,code);if(_lkBtn)_lkBtn.textContent=vkName(code);closeKb();}
+document.querySelectorAll('.kb-key,.mouse-button').forEach(k=>{if(k.dataset.key)k.onclick=()=>selectKey(k.dataset.key);});
+document.getElementById('kb-modal').onclick=e=>{if(e.target.id==='kb-modal')closeKb();};
+async function toggleOffscreen(){
+  const btn=document.getElementById('offscreen-btn');
+  const on=btn.classList.contains('active');
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({esp_offscreen:!on})});
+  btn.classList.toggle('active',!on);
+  btn.style.background=on?'var(--off)':'var(--acc)';
+  btn.style.color=on?'var(--txt)':'#000';
+  btn.textContent=on?'Offscreen ESP':'Offscreen ESP ■';
+  if(!on) window.open('/esp','_blank');
+}
+async function refreshPlr(){
+  const box=document.getElementById('plr-list');
+  if(!box)return;
+  try{
+    const r=await fetch('/api/players');
+    const players=await r.json();
+    if(!players.length){box.innerHTML='<div class="row" style="color:var(--muted);font-size:12px">No players found</div>';return;}
+    box.innerHTML=players.map(p=>`
+<div class="row" style="gap:8px;flex-wrap:wrap">
+  <span style="min-width:28px;color:var(--muted);font-size:11px">#${p.id}</span>
+  <span style="flex:1;font-size:13px">${p.name}</span>
+  <span style="font-size:11px;color:var(--muted)">${p.dist}m</span>
+  <span style="font-size:11px;color:var(--muted)">${p.hp}hp</span>
+  <button onclick="playerAction('teleport_to',${p.id})" style="padding:3px 8px;border-radius:5px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:11px;cursor:pointer">TP</button>
+  <button onclick="playerAction('copy_outfit',${p.id})" style="padding:3px 8px;border-radius:5px;background:var(--off);border:1px solid var(--bdr);color:var(--txt);font-size:11px;cursor:pointer">Outfit</button>
+  <button onclick="toggleFriend(${p.id},${p.friend?'false':'true'})" style="padding:3px 8px;border-radius:5px;background:${p.friend?'rgba(100,200,140,.15)':'var(--off)'};border:1px solid var(--bdr);color:${p.friend?'var(--green)':'var(--txt)'};font-size:11px;cursor:pointer">${p.friend?'Unfriend':'Friend'}</button>
+</div>`).join('');
+  }catch(e){box.innerHTML='<div class="row" style="color:var(--red);font-size:12px">Error loading players</div>';}
+}
+async function playerAction(type,id){
+  await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,id})});
+}
+async function toggleFriend(id,add){
+  await fetch('/api/friends',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,add})});
+  refreshPlr();
+}
+function startSnow(){
+  var cv=document.getElementById('snow-cv');
+  if(!cv)return;
+  var ctx=cv.getContext('2d');
+  function rsz(){cv.width=window.innerWidth;cv.height=window.innerHeight;}
+  rsz();window.addEventListener('resize',rsz);
+  var fl=[];
+  for(var i=0;i<75;i++){
+    fl.push({x:Math.random()*window.innerWidth,y:Math.random()*window.innerHeight,
+      r:Math.random()*1.8+0.4,sp:Math.random()*0.9+0.25,
+      sw:Math.random()*Math.PI*2,sd:Math.random()*0.03+0.01,
+      dr:Math.random()*0.35-0.175,op:Math.random()*0.45+0.15});
+  }
+  function draw(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    fl.forEach(function(f){
+      f.sw+=f.sd;f.x+=Math.sin(f.sw)*0.5+f.dr;f.y+=f.sp;
+      if(f.y>cv.height+4){f.y=-4;f.x=Math.random()*cv.width;}
+      if(f.x>cv.width+4)f.x=-4;if(f.x<-4)f.x=cv.width+4;
+      ctx.beginPath();ctx.arc(f.x,f.y,f.r,0,6.28);
+      ctx.fillStyle='rgba(255,255,255,'+f.op.toFixed(2)+')';ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+  cv.style.opacity='1';
+}
+function runSplashAnim(){
+  // Bar dol (1.5s)
+  setTimeout(function(){var b=document.getElementById('spl-bar');if(b)b.style.width='100%';},60);
+  // Bar bittikten sonra içerik belirir + harfler sırayla gelir
+  setTimeout(function(){
+    var c=document.getElementById('spl-content');if(c)c.classList.add('show');
+    var parts=[
+      {id:'spl-hit-l',text:'Hit',cls:'spl-hit',d:0},
+      {id:'spl-mare-l',text:'mare',cls:'spl-mare',d:260},
+      {id:'spl-bypass-l',text:'Bypass',cls:'spl-bypass',d:580}
+    ];
+    parts.forEach(function(p){
+      var el=document.getElementById(p.id);if(!el)return;
+      p.text.split('').forEach(function(ch,i){
+        var s=document.createElement('span');
+        s.className='spl-letter '+p.cls;
+        s.textContent=ch;
+        s.style.animationDelay=(p.d+i*55)+'ms';
+        el.appendChild(s);
+      });
+    });
+    // Kullanıcı adı harfler bittikten sonra belirir
+    setTimeout(function(){var u=document.getElementById('spl-user');if(u)u.classList.add('show');},900);
+  },1600);
+}
+function splClick(){
+  const o=document.getElementById('splash-overlay');
+  if(o)o.classList.add('gone');
+  startSnow();
+  // yutros → tıklanınca ses çal
+  if(window._splTag==='yutros'){
+    try{const a=new Audio('https://mp3tourl.com/audio/1779194482729-08fc64bf-8f6f-44f1-8085-bb0887435477.ogg');a.volume=0.8;a.play();}catch(e){}
+  }
+  // aimar → tıklanınca ses çal
+  if(window._splTag==='aimar'){
+    try{const a=new Audio('https://mp3tourl.com/audio/1779194380764-9a3e7cad-7134-47b7-87a8-2820b8c0e3fe.mp3');a.volume=0.8;a.play();}catch(e){}
+  }
+}
+function initSplash(){
+  fetch('/api/license').then(r=>r.json()).then(d=>{
+    const u=document.getElementById('spl-user');
+    window._splTag=(d.tag||'').toLowerCase();
+    if(u&&d.tag)u.textContent=d.tag;
+  }).catch(()=>{});
+}
+function initWm(){
+  const on=localStorage.getItem('wm_on')==='1';
+  const cb=document.getElementById('wm_toggle');if(cb)cb.checked=on;
+  const box=document.getElementById('watermark-box');if(box)box.style.display=on?'block':'none';
+  fetch('/api/license').then(r=>r.json()).then(d=>{
+    const nm=document.getElementById('wm-name');if(nm&&d.tag)nm.textContent=d.tag;
+    const we=document.getElementById('wm-exp');
+    if(we){if(d.expires_at){const dt=new Date(d.expires_at);const diff=Math.ceil((dt-Date.now())/86400000);we.textContent=diff+'d remaining';}else we.textContent='Lifetime';}
+  }).catch(()=>{});
+}
+function toggleWm(on){
+  localStorage.setItem('wm_on',on?'1':'0');
+  const box=document.getElementById('watermark-box');if(box)box.style.display=on?'block':'none';
+}
+</script>
+</body></html>)RAW4";
+    return s;
+}
+
+// ── Serve PNG icon from assets folder ────────────────────────
+static bool ServeIcon(const char* name, std::string& body, std::string& ct) {
+    char path[256] = {};
+    snprintf(path, sizeof(path),
+             "C:\\Users\\tron\\Desktop\\beni siz delirttiniz\\assets\\%s", name);
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    DWORD sz = GetFileSize(f, nullptr);
+    if (sz == 0 || sz > 256*1024) { CloseHandle(f); return false; }
+    body.resize(sz); DWORD rd = 0;
+    ReadFile(f, &body[0], sz, &rd, nullptr); body.resize(rd);
+    CloseHandle(f); ct = "image/png"; return true;
+}
+
+// ── HTTP request handler ──────────────────────────────────────
+static void HandleWebRequest(SOCKET client) {
+    DWORD to = 5000;
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (char*)&to, sizeof(to));
+    char buf[16384] = {};
+    int n = recv(client, buf, sizeof(buf)-1, 0);
+    if (n <= 0) { closesocket(client); return; }
+
+    std::string req(buf, n);
+    auto sp1 = req.find(' ');
+    auto sp2 = req.find(' ', sp1+1);
+    if (sp1==std::string::npos||sp2==std::string::npos) { closesocket(client); return; }
+    std::string method = req.substr(0, sp1);
+    std::string path   = req.substr(sp1+1, sp2-sp1-1);
+    auto qs = path.find('?'); if (qs!=std::string::npos) path=path.substr(0,qs);
+
+    if (method == "OPTIONS") {
+        const char* pre = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
+        send(client, pre, (int)strlen(pre), 0);
+        closesocket(client); return;
+    }
+
+    std::string body, ct;
+    int status = 200;
+
+    if (path=="/"||path=="/index.html") {
+        body=GetMenuHtml(); ct="text/html; charset=utf-8";
+    } else if (path=="/api/settings") {
+        if (method=="GET") {
+            body=BuildSettingsJson(); ct="application/json";
+        } else if (method=="POST") {
+            auto bs=req.find("\r\n\r\n");
+            std::string rb=(bs!=std::string::npos)?req.substr(bs+4):"";
+            body=ApplySettingsJson(rb)?"{\"ok\":true}":"{\"ok\":false}";
+            if(body[6]=='f') status=400;
+            ct="application/json";
+        }
+    } else if (path=="/api/status") {
+        body=BuildStatusJson(); ct="application/json";
+    } else if (path=="/esp") {
+        body=GetEspHtml(); ct="text/html; charset=utf-8";
+    } else if (path=="/api/esp-data") {
+        body=BuildEspDataJson(); ct="application/json";
+    } else if (path=="/api/players") {
+        FetchNamesFromHttp();   // sadece Refresh butonuna basılınca çağrılır
+        body=BuildPlayersJson(); ct="application/json";
+    } else if (path=="/api/friends" && method=="POST") {
+        auto bs=req.find("\r\n\r\n");
+        std::string rb=(bs!=std::string::npos)?req.substr(bs+4):"";
+        auto m2=ParseFlatJson(rb);
+        auto itId=m2.find("id"); auto itAdd=m2.find("add");
+        if(itId!=m2.end()&&itAdd!=m2.end()){
+            int fid=atoi(itId->second.c_str());
+            bool add=(itAdd->second=="true"||itAdd->second=="1");
+            if(add) { bool dup=false; for(auto&fr:friendList)if(fr.id==fid){dup=true;break;} if(!dup)friendList.push_back({fid,""}); }
+            else     { friendList.erase(std::remove_if(friendList.begin(),friendList.end(),[fid](const Friend&f){return f.id==fid;}),friendList.end()); }
+            SaveConfigRemote();
+            body="{\"ok\":true}";
+        } else { body="{\"ok\":false}"; status=400; }
+        ct="application/json";
+    } else if (path=="/api/action" && method=="POST") {
+        auto bs=req.find("\r\n\r\n");
+        std::string rb=(bs!=std::string::npos)?req.substr(bs+4):"";
+        auto m2=ParseFlatJson(rb);
+        auto itType=m2.find("type"); auto itId=m2.find("id");
+        if(itType!=m2.end()&&itId!=m2.end()){
+            int aid=atoi(itId->second.c_str());
+            std::string atype=itType->second;
+            if(atype=="teleport_to") { g_pendingAction.targetId=aid; g_pendingAction.type=PA_TELEPORT_TO; }
+            else if(atype=="copy_outfit") { g_pendingAction.targetId=aid; g_pendingAction.type=PA_COPY_OUTFIT; }
+            body="{\"ok\":true}";
+        } else { body="{\"ok\":false}"; status=400; }
+        ct="application/json";
+    } else if (path=="/api/activate" && method=="POST") {
+        auto bs=req.find("\r\n\r\n");
+        std::string rb=(bs!=std::string::npos)?req.substr(bs+4):"";
+        auto m2=ParseFlatJson(rb);
+        auto itKey=m2.find("key");
+        if(itKey!=m2.end() && !itKey->second.empty()){
+            bool ok = License::Activate(itKey->second);
+            body = ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"Invalid or already used key\"}";
+            status = ok ? 200 : 403;
+        } else { body="{\"ok\":false,\"error\":\"Missing key\"}"; status=400; }
+        ct="application/json";
+    } else if (path=="/api/license" && method=="GET") {
+        std::ostringstream lj;
+        lj << "{\"valid\":"   << (License::State::Valid   ?"true":"false")
+           << ",\"checked\":" << (License::State::Checked ?"true":"false")
+           << ",\"expired\":" << (License::State::Expired ?"true":"false")
+           << ",\"hwid\":\""  << License::GetHWID() << "\""
+           << ",\"tag\":\""       << License::State::UserTag  << "\""
+           << ",\"expires_at\":\"" << License::State::ExpiresAt << "\"}";
+        body=lj.str(); ct="application/json";
+    } else if (path == "/audio/startup.mp3") {
+        std::wstring mp3path;
+        {
+            wchar_t buf[MAX_PATH] = {};
+            GetModuleFileNameW(NULL, buf, MAX_PATH);
+            std::wstring exe(buf);
+            auto sl = exe.rfind(L'\\');
+            mp3path = (sl != std::wstring::npos ? exe.substr(0, sl+1) : L"") + L"startup.mp3";
+        }
+        HANDLE hf = CreateFileW(mp3path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (hf != INVALID_HANDLE_VALUE) {
+            DWORD sz = GetFileSize(hf, NULL);
+            std::string mp3(sz, '\0');
+            DWORD rd = 0; ReadFile(hf, &mp3[0], sz, &rd, NULL); CloseHandle(hf);
+            body = mp3; ct = "audio/mpeg";
+        } else { status = 404; body = "Not Found"; ct = "text/plain"; }
+    } else if (path.size() > 6 && path.substr(0, 6) == "/icon/") {
+        std::string name = path.substr(6);
+        if (name.find('/') == std::string::npos &&
+            name.find('\\') == std::string::npos &&
+            name.find("..") == std::string::npos) {
+            if (!ServeIcon(name.c_str(), body, ct)) {
+                status = 404; body = "Not Found"; ct = "text/plain";
+            }
+        } else { status = 404; body = "Not Found"; ct = "text/plain"; }
+    } else {
+        status=404; body="Not Found"; ct="text/plain";
+    }
+
+    std::ostringstream resp;
+    resp << "HTTP/1.1 " << status << " OK\r\n"
+         << "Content-Type: " << ct << "\r\n"
+         << "Content-Length: " << body.size() << "\r\n"
+         << "Access-Control-Allow-Origin: *\r\n"
+         << "Cache-Control: no-cache\r\n"
+         << "Connection: close\r\n\r\n" << body;
+    std::string rs = resp.str();
+    const char* ptr = rs.c_str();
+    int remaining = (int)rs.size();
+    while (remaining > 0) {
+        int sent = send(client, ptr, remaining, 0);
+        if (sent <= 0) break;
+        ptr += sent;
+        remaining -= sent;
+    }
+    closesocket(client);
+}
+
+// ── Server thread ─────────────────────────────────────────────
+static void WebServerThread() {
+    g_webPort = 3551;  // sabit port — her zaman aynı
+
+    WSADATA wsa = {};
+    if (WSAStartup(MAKEWORD(2,2), &wsa) != 0) return;
+
+    // LAN IP'yi tespit et (telefon bağlantısı için)
+    g_localIP = GetLocalIP();
+
+    while (true) {  // dıştaki döngü: bind/listen başarısız olursa yeniden dene
+        SOCKET srv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (srv == INVALID_SOCKET) { Sleep(2000); continue; }
+
+        int opt = 1;
+        setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+
+        sockaddr_in addr = {};
+        addr.sin_family      = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);  // tüm arayüzler: LAN + localhost
+        addr.sin_port        = htons(g_webPort);
+
+        if (bind(srv,(sockaddr*)&addr,sizeof(addr))!=0 || listen(srv,32)!=0) {
+            closesocket(srv); Sleep(2000); continue;
+        }
+
+        while (true) {  // içteki döngü: istemci kabul et
+            fd_set fds; FD_ZERO(&fds); FD_SET(srv,&fds);
+            timeval tv={1,0};
+            int r = select(0,&fds,nullptr,nullptr,&tv);
+            if (r < 0) break;   // socket hatası → yeniden bind
+            if (r == 0) continue;
+            SOCKET client = accept(srv,nullptr,nullptr);
+            if (client == INVALID_SOCKET) break;
+            std::thread([client](){ HandleWebRequest(client); }).detach();
+        }
+
+        closesocket(srv);
+        Sleep(1000);
+    }
+
+    WSACleanup();
+}

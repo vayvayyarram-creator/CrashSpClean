@@ -1,0 +1,114 @@
+================================================================
+  nullsyntax  --  FiveM External Cheat  --  Setup Guide
+================================================================
+
+PREREQUISITES
+  - Visual Studio 2022 (v143 toolset)
+  - Windows SDK 10.0
+  - DirectX 11 (included with Windows SDK)
+  - NullKDriver loaded in kernel (load before launching cheat)
+  - FiveM installed and running
+
+STEP 1: Add ImGui sources
+  Copy the following files into  src/imgui/ :
+
+    imgui.h
+    imgui.cpp
+    imgui_internal.h
+    imgui_draw.cpp
+    imgui_tables.cpp
+    imgui_widgets.cpp
+    imgui_impl_dx11.h
+    imgui_impl_dx11.cpp
+    imgui_impl_win32.h
+    imgui_impl_win32.cpp
+    imconfig.h
+    imstb_rectpack.h
+    imstb_textedit.h
+    imstb_truetype.h
+
+  Download from: https://github.com/ocornut/imgui
+  Use the docking or master branch.
+
+STEP 2: Verify NullKDriver IOCTL codes
+  Open  src/Driver/Driver.hpp  and compare:
+    NULLKD_READ    CTL_CODE(..., 0x800, ...)
+    NULLKD_WRITE   CTL_CODE(..., 0x801, ...)
+    NULLKD_GET_BASE CTL_CODE(..., 0x802, ...)
+    NULLKD_GET_PID  CTL_CODE(..., 0x803, ...)
+
+  Match these to your NullKDriver kernel source.
+  Also verify the KernelReadRequest / KernelWriteRequest struct layout.
+
+STEP 3: Verify offsets
+  Open  src/Offsets/offsets.hpp
+  Update offsets for your GTA5 build version.
+  These are pre-filled for b3095 — use a pattern scanner
+  or Cheat Engine to confirm if your build differs.
+
+STEP 4: Build
+  Open NullSyntax.sln in Visual Studio 2022.
+  Select  Release | x64.
+  Build -> Build Solution  (Ctrl+Shift+B).
+  Output: bin/Release/NullSyntax.exe
+
+STEP 5: Run
+  1. Load NullKDriver (run your driver loader as Admin).
+  2. Launch FiveM and join a server.
+  3. Run NullSyntax.exe as Administrator.
+  4. Press INSERT to open the menu.
+  5. Press END to exit cleanly.
+
+================================================================
+  FILE STRUCTURE
+================================================================
+
+  NullSyntax.sln
+  NullSyntax.vcxproj
+  src/
+  ├── main.cpp                  Entry point, thread management
+  ├── Offsets/
+  │   └── offsets.hpp           GTA V memory offsets
+  ├── Driver/
+  │   ├── Driver.hpp            Kernel driver interface header
+  │   └── Driver.cpp            IOCTL read/write implementation
+  ├── Math/
+  │   └── Math.hpp              Vector2/3, Matrix4x4, WorldToScreen
+  ├── Scanner/
+  │   ├── Scanner.hpp           Game state cache header
+  │   └── Scanner.cpp           CWorld -> CPlayerManager traversal
+  ├── Features/
+  │   ├── Config.hpp            Runtime toggle/value storage
+  │   ├── ESP.hpp / .cpp        2D bounding boxes, names, bars
+  │   ├── Aimbot.hpp / .cpp     Target selection + SendInput
+  │   └── Movement.hpp / .cpp   God mode, speed, jump, ragdoll
+  ├── Menu/
+  │   ├── Menu.hpp              nullsyntax ImGui menu header
+  │   └── Menu.cpp              Themed tabs, custom widgets
+  ├── Overlay/
+  │   ├── Overlay.hpp           DX11 transparent window header
+  │   └── Overlay.cpp           Window creation, sync, render
+  └── imgui/                    << YOU MUST ADD THESE FILES >>
+      imgui.h / .cpp
+      imgui_impl_dx11.h / .cpp
+      imgui_impl_win32.h / .cpp
+      (+ other imgui source files)
+
+================================================================
+  THREAD LAYOUT
+================================================================
+
+  Main Thread        60 Hz   Render loop (ImGui, ESP, input)
+  Scan Thread         1 Hz   Pointer resolution (CPlayerManager)
+  Cache Thread       60 Hz   Position / health / view matrix
+  Movement Thread    64 Hz   Kernel writes (godmode, speed, jump)
+
+================================================================
+  CONTROLS
+================================================================
+
+  INSERT             Toggle menu open/closed
+  END                Exit cheat cleanly
+  RMB (hold)         Activate aimbot (configurable in menu)
+
+================================================================

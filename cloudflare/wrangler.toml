@@ -1,0 +1,73 @@
+name = "moon-auth-service"
+main = "workers/index.ts"
+compatibility_date = "2024-07-22"
+compatibility_flags = ["nodejs_compat"]
+
+# Account ID (gönderildi)
+account_id = "513c7c6743bf89656c87bb9febfc3d2b"
+
+# ============================================================
+# BINDINGS
+# ============================================================
+
+# D1 Database — ID wrangler d1 create sonrası otomatik eklenir
+# Başlangıçta placeholder, deploy öncesi d1 create çalıştırıp bu değer güncellenir.
+[[d1_databases]]
+binding = "DB"
+database_name = "moon-auth"
+database_id = "c7d2290c-7db1-473b-8bb6-19a4b48242c2"
+
+# R2 Bucket (currently disabled — enable after R2 is activated in Cloudflare Dashboard)
+# [[r2_buckets]]
+# binding = "R2_BUCKET"
+# bucket_name = "moon-releases"
+# preview_bucket_name = "moon-releases-preview"
+
+# ============================================================
+# ENVIRONMENT VARIABLES (public, deploy ile bundle'a gömülür)
+# ============================================================
+
+[vars]
+ENVIRONMENT = "production"
+R2_ACCOUNT_ID    = "513c7c6743bf89656c87bb9febfc3d2b"
+R2_BUCKET_NAME   = "moon-releases"
+JWT_SECRET       = "M00nJWT$ecret-K3y-2024-Ch4ng3M3-1nPr0duct10n-Env"
+PUBLIC_API_PREFIX = "/api"
+# Admin secret olarak shared secret kullanılır — production'da wrangler secret put kullanılmalı
+# Bu satır sadece dev/smoke için. Prod'da aşağıdaki gibi wrangler secret kullan:
+#   wrangler secret put ADMIN_SECRET
+ADMIN_SECRET = "M00n4dm1n-$ecret-K3y-2024-R0t4t3-1nPr0d"
+
+# GitHub Releases fallback (R2 kapalıyken DLL indirmeyi aktifleştirir)
+# Public repo'da olmalı — GitHub CDN ücretsiz, Auth yok
+# Owner ve repo adlarını kendi GitHub hesabınızla değiştirin
+GITHUB_OWNER = "vayvayyarram-creator"
+GITHUB_REPO  = "CrashSp"
+
+[env.staging]
+name = "moon-auth-staging"
+vars = { ENVIRONMENT = "staging", PUBLIC_API_PREFIX = "/api-staging" }
+
+[env.production]
+name = "moon-auth-service"
+vars = { ENVIRONMENT = "production", PUBLIC_API_PREFIX = "/api" }
+
+# ============================================================
+# BUILD CONFIGURATION
+# ============================================================
+
+[build]
+command = "npx esbuild workers/index.ts --bundle --platform=neutral --target=es2022 --conditions=worker,import,worker --outfile=dist/index.js --format=esm"
+
+# ============================================================
+# DEFAULT WORKER URL
+#   Subdomain otomatik: moon-auth-service.<account-subdomain>.workers.dev
+#   Account subdomain = ilk 32 char hex (CF rule): 513c7c6743bf89656c87bb9febfc3d2b
+#   Bu account ID aynı zamanda bir nevi subdomain identifier olur — default
+#   olduğu için Worker otomatik <name>.<account_hash>.workers.dev şeklinde olur.
+#   Deployment sonrası URL'i wrangler deployments list ile öğreneceğiz.
+# ============================================================
+
+[observability]
+enabled = true
+head_sampling_rate = 1.0

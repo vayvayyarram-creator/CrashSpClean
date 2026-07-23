@@ -1,0 +1,191 @@
+name: Release Moon
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.1)'
+        required: true
+        default: 'v1.0.0'
+      dll_path:
+        description: 'Path to SpCrashReport.dll'
+        required: true
+        default: 'bin/Release/SpCrashReport.dll'
+
+env:
+  WORKER_URL: 'https://moon-auth-service.moonsal.workers.dev'
+
+jobs:
+  build:
+    name: Build Windows payload
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.hash.outputs.sha }}
+      size: ${{ steps.hash.outputs.bytes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.30.x'
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved version: $VERSION"
+
+      - name: Build CMake (Release)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Compute SHA256 + size
+        id: hash
+        shell: bash
+        run: |
+          set -e
+          DLL="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dll_path || 'bin/Release/SpCrashReport.dll' }}"
+          if [ ! -f "$DLL" ]; then
+            echo "::error::DLL bulunamadı: $DLL"
+            exit 1
+          fi
+          cp "$DLL" "bin/Release/SpCrashReport.dll"
+          sha256sum "bin/Release/SpCrashReport.dll" | tee sha256.txt
+          SHA=$(awk '{print $1}' sha256.txt)
+          SIZE=$(stat -c %s "bin/Release/SpCrashReport.dll")
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "bytes=$SIZE" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: moon-release-payloads
+          path: |
+            bin/Release/SpCrashReport.dll
+            bin/Release/MoonInternal.exe
+            bin/Release/MoonLoader.exe
+            bin/Release/setup.exe
+            bin/Release/wsl.exe
+            bin/Release/version.dll
+            sha256.txt
+          if-no-files-found: warn
+
+  publish-github:
+    name: Publish GitHub Release + D1 update
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: moon-release-payloads
+          path: release-artifacts
+
+      - name: Update D1 (mark previous deprecated + insert new release)
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          SHA="${{ needs.build.outputs.sha256 }}"
+          SIZE="${{ needs.build.outputs.size }}"
+          GH_OWNER="${{ github.repository_owner }}"
+          GH_REPO="${{ github.event.repository.name }}"
+          GH_URL="https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${VERSION}/SpCrashReport.dll"
+          BUILD_HASH="${SHA:0:12}"
+
+          API="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query"
+          NOW=$(date +%s%3N)
+
+          # 1. Mark previous latest deprecated
+          curl -sS -X POST "$API" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"sql\":\"UPDATE releases SET is_latest=0 WHERE is_latest=1 AND version != ?\",\"params\":[\"$VERSION\"]}" \
+            && echo "✔ previous latest deprecated"
+
+          # 2. Insert/update release with GitHub URL
+          PAYLOAD=$(jq -n \
+            --arg v "$VERSION" \
+            --arg bh "$BUILD_HASH" \
+            --arg ghurl "$GH_URL" \
+            --arg gho "$GH_OWNER" \
+            --arg ghr "$GH_REPO" \
+            --arg sha "$SHA" \
+            --argjson size "$SIZE" \
+            --argjson now "$NOW" \
+            '{
+              "sql": "INSERT INTO releases (version, build_hash, r2_key, github_url, github_owner, github_repo, file_size, sha256, changelog, status, is_latest, min_client_version, created_at, released_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?) ON CONFLICT(version) DO UPDATE SET r2_key=excluded.r2_key, github_url=excluded.github_url, github_owner=excluded.github_owner, github_repo=excluded.github_repo, file_size=excluded.file_size, sha256=excluded.sha256, is_latest=1, released_at=excluded.released_at",
+              "params": [$v, $bh, ("releases/" + $v + "/SpCrashReport.dll"), $ghurl, $gho, $ghr, $size, $sha, "Auto-deployed release", "active", "1.0.0", $now, $now]
+            }')
+
+          RESP=$(curl -sS -X POST "$API" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD")
+          echo "$RESP" | jq '.success, .errors'
+          if [ "$(echo $RESP | jq -r '.success')" != "true" ]; then
+            echo "::error::D1 update failed!"
+            exit 1
+          fi
+          echo "✔ D1 release record inserted"
+
+      - name: Create GitHub Release + Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.version }}
+          name: 'Moon v${{ needs.build.outputs.version }}'
+          generate_release_notes: true
+          body: |
+            ## Moon Private — ${{ needs.build.outputs.version }}
+
+            **SHA256**: `${{ needs.build.outputs.sha256 }}`
+            **Size**: ${{ needs.build.outputs.size }} bytes
+
+            Otomatik GitHub Actions ile yayınlandı.
+            Worker üzerinden indirme: `${GH_OWNER}/${GH_REPO}/releases/download/${{ needs.build.outputs.version }}/SpCrashReport.dll`
+          files: |
+            release-artifacts/SpCrashReport.dll
+            release-artifacts/MoonInternal.exe
+            release-artifacts/MoonLoader.exe
+            release-artifacts/setup.exe
+            release-artifacts/wsl.exe
+            release-artifacts/version.dll
+          fail_on_unmatched_files: false
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Health check (Worker reflects new release)
+        run: |
+          sleep 15
+          RESP=$(curl -sS "${{ env.WORKER_URL }}/release/latest")
+          echo "$RESP" | jq '.'
+          LATEST=$(echo "$RESP" | jq -r '.data.version')
+          if [ "$LATEST" != "${{ needs.build.outputs.version }}" ]; then
+            echo "::warning:: Worker latest = $LATEST ≠ ${{ needs.build.outputs.version }} (D1 eventual consistency)"
+          else
+            echo "✔ Worker reflects new release $LATEST"
+          fi

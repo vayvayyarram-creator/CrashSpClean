@@ -1,0 +1,114 @@
+﻿[*] MSVC bulundu: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat
+cmd.exe : 'vswhere.exe' is not recognized as an internal or external command,
+At C:\Users\tron\Desktop\beni siz delirttiniz\run_build.ps1:6 char:11
++ $output = & cmd.exe /c "`"$dir\build.bat`"" 2>&1
++           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ('vswhere.exe' i...ternal command,:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+operable program or batch file.
+**********************************************************************
+** Visual Studio 2022 Developer Command Prompt v17.0
+** Copyright (c) 2025 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x64'
+[*] CMake configure (Release)...
+-- The CXX compiler identification is MSVC 19.44.35225.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (1.1s)
+-- Generating done (0.0s)
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_C_COMPILER
+
+
+-- Build files have been written to: C:/Users/tron/Desktop/beni siz delirttiniz/build
+[*] Derleniyor (Release)...
+[1/8] Building CXX object CMakeFiles\NullSyntax.dir\C_\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_tables.cpp.obj
+[2/8] Building CXX object CMakeFiles\NullSyntax.dir\C_\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_impl_win32.cpp.obj
+[3/8] Building CXX object CMakeFiles\NullSyntax.dir\C_\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_draw.cpp.obj
+[4/8] Building CXX object CMakeFiles\NullSyntax.dir\C_\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_impl_dx11.cpp.obj
+[5/8] Building CXX object CMakeFiles\NullSyntax.dir\C_\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui.cpp.obj
+[6/8] Building CXX object CMakeFiles\NullSyntax.dir\C_\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_widgets.cpp.obj
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(12): warning C4005: 'DXGI_STATUS_OCCLUDED': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59282): note: önceki 'DXGI_STATUS_OCCLUDED' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(13): warning C4005: 'DXGI_STATUS_CLIPPED': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59291): note: önceki 'DXGI_STATUS_CLIPPED' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(14): warning C4005: 'DXGI_STATUS_NO_REDIRECTION': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59300): note: önceki 'DXGI_STATUS_NO_REDIRECTION' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(15): warning C4005: 'DXGI_STATUS_NO_DESKTOP_ACCESS': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59309): note: önceki 'DXGI_STATUS_NO_DESKTOP_ACCESS' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(16): warning C4005: 'DXGI_STATUS_GRAPHICS_VIDPN_SOURCE_IN_USE': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59318): note: önceki 'DXGI_STATUS_GRAPHICS_VIDPN_SOURCE_IN_USE' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(17): warning C4005: 'DXGI_STATUS_MODE_CHANGED': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59327): note: önceki 'DXGI_STATUS_MODE_CHANGED' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(18): warning C4005: 'DXGI_STATUS_MODE_CHANGE_IN_PROGRESS': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59336): note: önceki 'DXGI_STATUS_MODE_CHANGE_IN_PROGRESS' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(21): warning C4005: 'DXGI_ERROR_INVALID_CALL': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59351): note: önceki 'DXGI_ERROR_INVALID_CALL' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(22): warning C4005: 'DXGI_ERROR_NOT_FOUND': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59360): note: önceki 'DXGI_ERROR_NOT_FOUND' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(23): warning C4005: 'DXGI_ERROR_MORE_DATA': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59369): note: önceki 'DXGI_ERROR_MORE_DATA' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(24): warning C4005: 'DXGI_ERROR_UNSUPPORTED': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59378): note: önceki 'DXGI_ERROR_UNSUPPORTED' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(25): warning C4005: 'DXGI_ERROR_DEVICE_REMOVED': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59387): note: önceki 'DXGI_ERROR_DEVICE_REMOVED' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(26): warning C4005: 'DXGI_ERROR_DEVICE_HUNG': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59396): note: önceki 'DXGI_ERROR_DEVICE_HUNG' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(27): warning C4005: 'DXGI_ERROR_DEVICE_RESET': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59406): note: önceki 'DXGI_ERROR_DEVICE_RESET' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(28): warning C4005: 'DXGI_ERROR_WAS_STILL_DRAWING': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59415): note: önceki 'DXGI_ERROR_WAS_STILL_DRAWING' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(29): warning C4005: 'DXGI_ERROR_FRAME_STATISTICS_DISJOINT': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59425): note: önceki 'DXGI_ERROR_FRAME_STATISTICS_DISJOINT' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(30): warning C4005: 'DXGI_ERROR_GRAPHICS_VIDPN_SOURCE_IN_USE': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59434): note: önceki 'DXGI_ERROR_GRAPHICS_VIDPN_SOURCE_IN_USE' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(31): warning C4005: 'DXGI_ERROR_DRIVER_INTERNAL_ERROR': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59444): note: önceki 'DXGI_ERROR_DRIVER_INTERNAL_ERROR' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(32): warning C4005: 'DXGI_ERROR_NONEXCLUSIVE': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59453): note: önceki 'DXGI_ERROR_NONEXCLUSIVE' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(33): warning C4005: 'DXGI_ERROR_NOT_CURRENTLY_AVAILABLE': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59462): note: önceki 'DXGI_ERROR_NOT_CURRENTLY_AVAILABLE' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(34): warning C4005: 'DXGI_ERROR_REMOTE_CLIENT_DISCONNECTED': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59472): note: önceki 'DXGI_ERROR_REMOTE_CLIENT_DISCONNECTED' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\dxgitype.h(35): warning C4005: 'DXGI_ERROR_REMOTE_OUTOFMEMORY': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59481): note: önceki 'DXGI_ERROR_REMOTE_OUTOFMEMORY' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\d3d11.h(917): warning C4005: 'D3D11_ERROR_TOO_MANY_UNIQUE_STATE_OBJECTS': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59796): note: önceki 'D3D11_ERROR_TOO_MANY_UNIQUE_STATE_OBJECTS' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\d3d11.h(918): warning C4005: 'D3D11_ERROR_FILE_NOT_FOUND': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59805): note: önceki 'D3D11_ERROR_FILE_NOT_FOUND' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\d3d11.h(919): warning C4005: 'D3D11_ERROR_TOO_MANY_UNIQUE_VIEW_OBJECTS': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59815): note: önceki 'D3D11_ERROR_TOO_MANY_UNIQUE_VIEW_OBJECTS' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\d3d11.h(920): warning C4005: 'D3D11_ERROR_DEFERRED_CONTEXT_MAP_WITHOUT_INITIAL_DISCARD': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59824): note: önceki 'D3D11_ERROR_DEFERRED_CONTEXT_MAP_WITHOUT_INITIAL_DISCARD' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\d3d10.h(608): warning C4005: 'D3D10_ERROR_TOO_MANY_UNIQUE_STATE_OBJECTS': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59772): note: önceki 'D3D10_ERROR_TOO_MANY_UNIQUE_STATE_OBJECTS' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\directx\include\DirectX\d3d10.h(609): warning C4005: 'D3D10_ERROR_FILE_NOT_FOUND': makro yeniden tanımlama
+C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared\winerror.h(59781): note: önceki 'D3D10_ERROR_FILE_NOT_FOUND' tanımına bakın
+C:\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_widgets.cpp(569): warning C4244: 'bağımsız değişken': 'int' - 'float' dönüşümü; veri kaybı olabilir
+C:\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_widgets.cpp(569): warning C4244: 'bağımsız değişken': 'int' - 'float' dönüşümü; veri kaybı olabilir
+C:\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_widgets.cpp(1528): warning C4244: 'bağımsız değişken': 'float' - 'int' dönüşümü; veri kaybı olabilir
+C:\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_widgets.cpp(2458): warning C4244: 'bağımsız değişken': 'int' - 'float' dönüşümü; veri kaybı olabilir
+C:\Users\tron\Desktop\qwe\Libraries\imgui\include\ImGui\imgui_widgets.cpp(5772): warning C4244: 'bağımsız değişken': 'float' - 'int' dönüşümü; veri kaybı olabilir
+[7/8] Building CXX object CMakeFiles\NullSyntax.dir\Cheat\Source.cpp.obj
+C:\Users\tron\Desktop\beni siz delirttiniz\Cheat\Source.cpp(6): warning C4005: 'WIN32_LEAN_AND_MEAN': makro yeniden tanımlama
+C:\Users\tron\Desktop\beni siz delirttiniz\Cheat\Source.cpp(6): note: 'WIN32_LEAN_AND_MEAN' önceden komut satırında bildirildi
+C:\Users\tron\Desktop\beni siz delirttiniz\Cheat\Source.cpp(7): warning C4005: 'NOMINMAX': makro yeniden tanımlama
+C:\Users\tron\Desktop\beni siz delirttiniz\Cheat\Source.cpp(7): note: 'NOMINMAX' önceden komut satırında bildirildi
+C:\Users\tron\Desktop\qwe\Libraries\mjlib\include\mjLib\String.hpp(39): warning C4267: 'bağımsız değişken': 'size_t' - '_Ty' dönüşümü; veri kaybı olabilir
+        with
+        [
+            _Ty=int
+        ]
+C:\Users\tron\Desktop\qwe\Libraries\mjlib\include\mjLib\Console.hpp(7): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+C:\Users\tron\Desktop\qwe\Libraries\mjlib\include\mjLib\Console.hpp(8): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+C:\Users\tron\Desktop\qwe\Libraries\mjlib\include\mjLib\Console.hpp(9): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+[8/8] Linking CXX executable "C:\Users\tron\Desktop\beni siz delirttiniz\bin\Release\NullSyntax.exe"
+
+[OK] Cikti: bin\Release\NullSyntax.exe

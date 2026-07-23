@@ -1,0 +1,79 @@
+# ==========================================================
+#  Force LF for source code, CRLF for Windows-specific files
+# ==========================================================
+* text=auto
+
+# C++ Source files — LF
+*.c         text eol=lf
+*.cpp       text eol=lf
+*.cc        text eol=lf
+*.cxx       text eol=lf
+*.h         text eol=lf
+*.hpp       text eol=lf
+*.hh        text eol=lf
+*.hxx       text eol=lf
+*.inc       text eol=lf
+*.inl       text eol=lf
+
+# C# / .NET — CRLF
+*.cs        text eol=crlf
+*.xaml      text eol=crlf
+
+# OS shell scripts — LF
+*.sh        text eol=lf
+*.bash      text eol=lf
+
+# PowerShell — CRLF (Windows native)
+*.ps1       text eol=crlf
+*.psm1      text eol=crlf
+*.psd1      text eol=crlf
+
+# Batch — CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# JetBrains Rider
+.idea/      binary
+*.sln       text eol=crlf
+
+# Visual Studio
+.vs/        binary
+
+# Keep CRLF for Windows-generated files
+INF/*       text eol=crlf
+SYS/*       text eol=crlf
+CATALOG*    text eol=crlf
+RC          text eol=crlf
+
+# ==========================================================
+#  Binary files
+# ==========================================================
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.mp3       binary
+*.wav       binary
+*.ogg       binary
+*.mp4       binary
+*.ttf       binary
+*.otf       binary
+*.woff      binary
+*.woff2     binary
+
+# Compiled binaries
+*.dll       binary
+*.exe       binary
+*.pdb       binary
+*.so        binary
+*.lib       binary
+*.a         binary
+*.o         binary
+*.out       binary
+
+# Archives
+*.zip       binary
+*.7z        binary
+*.tar.gz    binary
+*.rar       binary

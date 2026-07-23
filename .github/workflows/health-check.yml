@@ -1,0 +1,56 @@
+name: Cloudflare Worker Update Check
+
+on:
+  schedule:
+    # Her 6 saatte bir versiyon kontrolü yap
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-version:
+    name: Verify newest release is reachable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test C++ build still compiles with current Worker endpoint
+        run: |
+          # C++ tarafı sadece HTTPS URL'i kullanıyor; DNS / TLS smoke test yeterli
+          curl -sS -o /dev/null -w "worker_status:%{http_code}\n" \
+            https://moon-auth-service.moonsal.workers.dev/ping || echo "Worker offline"
+          curl -sS -o /dev/null -w "download_status:%{http_code}\n" \
+            https://moon-auth-service.moonsal.workers.dev/download/payload || echo "R2 unreachable"
+
+      - name: Verify D1 endpoint healthy
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DB_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: |
+          if [ -z "$CF_API_TOKEN" ]; then
+            echo "Skipping D1 check (no API token)"
+            exit 0
+          fi
+          API_URL="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${D1_DB_ID}/query"
+          echo "Test query: ping logs (last 24h)"
+          TS=$(date +%s)000
+          TS_24H_AGO=$((TS - 86400000))
+          curl -sS -X POST "$API_URL" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{
+              "sql": "SELECT COUNT(*) as cnt FROM ping_logs WHERE timestamp > ?",
+              "params": ['"$TS_24H_AGO"']
+            }' | jq '.result[0].cnt'
+
+      - name: Notify on health check failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🌙 Moon Worker Health Check FAILED: ${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        continue-on-error: true

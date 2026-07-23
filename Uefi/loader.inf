@@ -1,0 +1,42 @@
+## EDK2 Module Definition File
+## loader.efi — UEFI Boot Application
+##
+## Build: edk2 ortamını kur, bu .inf dosyasını bir pakete ekle,
+##        build -p YourPackage/YourPackage.dsc -m UEFI/loader.inf
+##        Output: Build/YourPackage/RELEASE_VS2019/X64/loader.efi
+
+[Defines]
+  INF_VERSION                    = 0x00010006
+  BASE_NAME                      = loader
+  FILE_GUID                      = CAFEBABE-0001-0002-0003-000000000001
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = UefiMain
+
+[Sources]
+  loader.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  DevicePathLib
+  MemoryAllocationLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+  gEfiDevicePathProtocolGuid
+
+[Guids]
+  gEfiFileInfoGuid
+
+[BuildOptions]
+  # Optimizasyon: küçük binary
+  MSFT:*_*_X64_CC_FLAGS  = /GL /O1 /Os
+  GCC:*_*_X64_CC_FLAGS   = -O2

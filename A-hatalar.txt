@@ -1,0 +1,90 @@
+MOON PRIVATE V 0.3 — BUG LIST (v0.2 → v0.3)
+
+Önceki sürümdeki A-hatalar.txt güncellendi:
+
+=== ÇÖZÜLEN BUGLAR (v0.3'e eklenen fixler) ===
+
+[✓] 1- WSL bypass yöntemi
+       → wsl.exe loader Cloudflare Workers üzerinden yeni payload yükler.
+       → setup_wsl_bypass.ps1 PowerShell profile'a wsl() fonksiyonu ekler.
+       → moon-auth-service.moonsal.workers.dev/download/payload endpoint indirme yapılır.
+
+[✓] 2- FPS drops düzeltildi:
+       → Cache thread 60Hz'den 30Hz'e düşürüldü (Source.cpp).
+       → ESP render thread GDI yerine deferred drawing kullanır.
+       → Aim target selection cache'lenir.
+       → Texture'lar önceden bir kez hazırlanır (her frame recreate değil).
+
+[✓] 3- IMGUI tamamen kaldırıldı:
+       → ImCompat.hpp + GDIRenderer.hpp + D3DRenderer.hpp aktif.
+       → D3D11 ESP overlay OpenGL/Direct2D köprü olmadan çalışır.
+       → Web tabanlı menu (localhost:7531) kullanılır.
+
+[✓] 4- Damage Boost özelliği eklendi:
+       → Weapon damage multiplier Memory.hpp üzerinden yazılır.
+       → Config.hpp: g_damageMultiplier (1.0x - 10.0x).
+
+[✓] 5- Magic Bullet fix:
+       → Bullet trajectory patch artık tek write atomik yapılır.
+       → GetWeaponDamage + damage ped offset doğru chain izler.
+       → Thread race condition Memory.hpp lock_guard ile çözüldü.
+
+[✓] 6- ESP lag düzeltildi:
+       → WorldToScreen SIMD'de Vector4 dot product tek seferde hesaplanır.
+       → Distance culling >300m oyuncular skip edilir.
+       → Font glyph cache pre-built, her frame lookup değil.
+
+[✓] 7- Player List sekmesi WebServer.hpp'a eklendi:
+       → /api/players endpoint, /api/friends POST.
+       → Limit 128 friend; UI tablo şeklinde.
+       → WebSocket üzerinden live güncelleme.
+
+[✓] 8- Teleport + Outfit kopyalama eklendi:
+       → Memory.hpp TeleportTo(pedId) — position + heading.
+       → ConfigurationLockModel → Apply ped component override.
+
+[✓] 9- GUI.hpp kaldırıldı (artık kullanılmıyor):
+       → Tüm UI Web menu üzerinden çalışır.
+
+[✓] 10- Unlock Car:
+        → Vehicle lock state biti 0 yapılır → tüm kilitler açılır.
+        → Config.hpp: g_unlockVehicle (bool toggle).
+
+[✓] 11- Low Damage:
+        → Ped damage multiplier ters yazılır (0.1x - 1.0x).
+        → God mode entegre çalışır.
+
+[✓] 12- Respawn:
+        → Dead state için revive patch.
+        → Config.hpp: g_respawnOnDeath.
+
+[✓] 13- GoodbyeDPI FiveM kapanınca yeniden başlatılamıyordu:
+        → svc_dll.cpp SvcLoop() yeniden tasarlandı.
+        → StartGoodbyeDPI() her FiveM açılışında idempotent çalışır.
+        → FiveM kapanınca StopGoodbyeDPI() + sonraki açılışta Fresh start.
+
+=== YENİ EKLENENLER (v0.3) ===
+
+[+] 14- Cloudflare Workers/R2/D1 altyapısı:
+       → VDS (93.88.201.224) tamamen kaldırıldı.
+       → moon-auth-service.moonsal.workers.dev/auth, /ping, /download API.
+       → R2 bucket: moon-releases (SpCrashReport.dll).
+       → D1 database: lisans/HWID yönetimi.
+
+[+] 15- TLS/SSL zorlaması:
+       → Tüm HTTP istekleri HTTPS'e çevrildi.
+       → WinHttpOpenRequest WINHTTP_FLAG_SECURE eklendi.
+
+[+] 16- Yeniden adlandırma:
+       → "FUD" / "Hitmare" tüm referansları "Moon" olarak değiştirildi.
+       → Loader çıktıları: MoonLoader.exe, MoonInternal.exe.
+       → Service: crVaultSvc.dll (zaten masum isim).
+       → UI başlıkları ve watermark güncellendi.
+
+================================================================
+Yapılacaklar:
+  - Cloudflare Worker deployment (wrangler deploy)
+  - D1 schema apply (wrangler d1 migrations apply moon-auth)
+  - R2 bucket oluştur + ilk release'i upload et
+  - Custom domain bağla (moon-auth.domain.com)
+  - C++ client dosyalarını derle ve HTTPS endpoint'leri doğrula

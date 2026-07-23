@@ -1,0 +1,122 @@
+# ==========================================================
+# C++ Build outputs
+# ==========================================================
+bin/
+build/
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.ipch
+*.cache
+*.tlog
+
+# ==========================================================
+# CMake / Ninja
+# ==========================================================
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+compile_commands.json
+.ninja_log
+.ninja_deps
+build.ninja
+
+# ==========================================================
+# Visual Studio
+# ==========================================================
+.vs/
+.vscode/
+[Bb]in/
+[Oo]bj/
+[Rr]elease/
+[Dd]ebug/
+*.[Pp]roj.user
+*.suo
+*.sln.docstates
+*.userprefs
+.bundle/
+*.nupkg
+.vs/
+ipch/
+*.aps
+*.bak
+
+# ==========================================================
+# Windows-specific
+# ==========================================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ==========================================================
+# Logs / runtime data
+# ==========================================================
+*.log
+monitor.log
+*.trace
+*.sap
+
+# ==========================================================
+# PowerShell artifacts
+# ==========================================================
+*.tmp
+*.swp
+
+# ==========================================================
+# Tools / system
+# ==========================================================
+.DS_Store
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+
+# ==========================================================
+# Cached data
+# ==========================================================
+Cache/
+assets/data/cache/
+/ornek/
+*.bin
+*.dat
+
+# ==========================================================
+# Secrets / Credentials — KESINLIKLE git'e gitmesin
+# ==========================================================
+*.env
+.env.local
+.dev.vars
+.wrangler/
+.dev.vars.*
+.cloudflare/
+.cloudflare-account*
+
+# Config'te lisans key veya webhook URL varsa
+*.key
+*.pem
+**/secrets/
+**/.secrets/
+
+# ==========================================================
+# Admin tool generated
+# ==========================================================
+node_modules/
+cloudflare/dist/
+cloudflare/node_modules/
+cloudflare/.wrangler/
+wrangler.toml.bak
+
+# Build outputs (explicit imply mirror existing structure)
+package-lock.json.bak
