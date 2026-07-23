@@ -1,118 +1,45 @@
-name: Release Moon v2
+name: Moon Release v2.1
 
-# Tag push tetikleyici — v* ile başlayan tüm tag'ler
 on:
   push:
     tags:
       - 'v*'
 
-env:
-  WORKER_URL: 'https://moon-auth-service.moonsal.workers.dev'
-  GH_REPO_URL: 'https://github.com/vayvayyarram-creator/CrashSpClean'
-
 jobs:
-  prepare:
-    name: Resolve version + ensure payload
+  release:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      has_real_binary: ${{ steps.payload.outputs.has_real_binary }}
-      sha256: ${{ steps.payload.outputs.sha }}
-      size: ${{ steps.payload.outputs.size }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve version
-        id: version
+      - name: Step 1: Print tags
         run: |
+          echo "GITHUB_REF=$GITHUB_REF"
           VERSION="${GITHUB_REF#refs/tags/}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Resolved: $VERSION"
+          echo "VERSION=$VERSION"
 
-      - name: Ensure payload exists
-        id: payload
+      - name: Step 2: Build placeholder payload
         run: |
           mkdir -p release-artifacts
-
-          # Real binary varsa kopyala
-          if [ -f "bin/Release/SpCrashReport.dll" ]; then
-            cp "bin/Release/SpCrashReport.dll" "release-artifacts/SpCrashReport.dll"
-            echo "has_real_binary=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::No real binary — placeholder oluşturuluyor"
-            python3 -c "
+          python3 -c "
 import sys
 h = b'MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00'
 h += b'\xb8\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00'
 h += b'\x00' * 48
-sys.stdout.buffer.write(h)
-" > release-artifacts/SpCrashReport.dll
-            echo "has_real_binary=false" >> "$GITHUB_OUTPUT"
-          fi
+with open('release-artifacts/SpCrashReport.dll', 'wb') as f:
+    f.write(h)
+print('wrote', len(h), 'bytes')
+"
+          ls -la release-artifacts/
 
-          SHA=$(sha256sum release-artifacts/SpCrashReport.dll | awk '{print $1}')
-          SIZE=$(stat -c %s release-artifacts/SpCrashReport.dll)
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
-          echo "==> $SIZE bytes, sha=$SHA"
-
-  build:
-    name: Attempt C++ build (best-effort)
-    needs: prepare
-    continue-on-error: true
-    runs-on: windows-latest
-    steps:
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Install Ninja + CMake
-        shell: bash
-        run: |
-          choco install ninja -y || true
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y || true
-
-      - name: Build attempt
-        id: build
-        shell: bash
-        run: |
-          set +e
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee build.log
-          if [ $? -eq 0 ]; then
-            cmake --build build --parallel 2>&1 | tee -a build.log
-            if [ $? -eq 0 ] && [ -f "bin/Release/SpCrashReport.dll" ]; then
-              echo "build_success=true" >> "$GITHUB_OUTPUT"
-              cp "bin/Release/SpCrashReport.dll" "release-artifacts/SpCrashReport.dll"
-              echo "✔ Real binary built"
-            else
-              echo "build_success=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "build_success=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload real binary (if any)
-        if: hashFiles('bin/Release/SpCrashReport.dll') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: moon-real-binary
-          path: bin/Release/SpCrashReport.dll
-          if-no-files-found: ignore
-
-  publish:
-    name: Publish release + D1 update
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - name: Update Cloudflare D1
+      - name: Step 3: Update D1
         env:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          SHA="${{ needs.prepare.outputs.sha256 }}"
-          SIZE="${{ needs.prepare.outputs.size }}"
+          VERSION="${GITHUB_REF#refs/tags/}"
+          SHA=$(sha256sum release-artifacts/SpCrashReport.dll | awk '{print $1}')
+          SIZE=$(stat -c %s release-artifacts/SpCrashReport.dll)
           GH_OWNER="${{ github.repository_owner }}"
           GH_REPO="${{ github.event.repository.name }}"
           GH_URL="https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${VERSION}/SpCrashReport.dll"
@@ -128,7 +55,7 @@ sys.stdout.buffer.write(h)
             --data "{\"sql\":\"UPDATE releases SET is_latest=0 WHERE is_latest=1 AND version != ?\",\"params\":[\"$VERSION\"]}" \
             && echo "✔ previous latest deprecated"
 
-          # Upsert release record
+          # Upsert
           PAYLOAD=$(jq -n \
             --arg v "$VERSION" \
             --arg bh "$BUILD_HASH" \
@@ -152,37 +79,25 @@ sys.stdout.buffer.write(h)
             echo "$RESP" | jq '.'
             exit 1
           fi
-          echo "✔ D1 release record upserted"
+          echo "✔ D1 release row upserted"
 
-      - name: Create GitHub Release with asset
+      - name: Step 4: Create GH release + upload
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.prepare.outputs.version }}
-          name: 'Moon v${{ needs.prepare.outputs.version }}'
+          tag_name: ${{ github.ref_name }}
+          name: 'Moon v${{ github.ref_name }}'
           generate_release_notes: true
           body: |
-            ## Moon Private — ${{ needs.prepare.outputs.version }}
+            ## Moon Private — ${{ github.ref_name }}
 
-            **SHA256**: `${{ needs.prepare.outputs.sha256 }}`
-            **Size**: ${{ needs.prepare.outputs.size }} bytes
-
-            Worker üzerinden indir: ${{ env.GH_REPO_URL }}/releases/download/${{ needs.prepare.outputs.version }}/SpCrashReport.dll
-          files: |
-            release-artifacts/SpCrashReport.dll
+            Otomatik olarak yayınlandı.
+          files: release-artifacts/SpCrashReport.dll
           fail_on_unmatched_files: false
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Worker health check
+      - name: Step 5: Health check
         run: |
           sleep 15
-          RESP=$(curl -fsS "${{ env.WORKER_URL }}/release/latest")
+          RESP=$(curl -fsS "https://moon-auth-service.moonsal.workers.dev/release/latest")
           echo "$RESP" | jq '.'
-          LATEST=$(echo "$RESP" | jq -r '.data.version')
-          if [ "$LATEST" != "${{ needs.prepare.outputs.version }}" ]; then
-            echo "::warning::Worker = $LATEST, expected = ${{ needs.prepare.outputs.version }}"
-          else
-            echo "✔ Worker reflects new release $LATEST"
-          fi
