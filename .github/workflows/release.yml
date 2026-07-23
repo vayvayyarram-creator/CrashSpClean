@@ -1,21 +1,10 @@
-name: Release Moon
+name: Release Moon v2
 
+# Tag push tetikleyici — v* ile başlayan tüm tag'ler
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g., v1.0.1)'
-        required: true
-        default: 'v1.0.0'
-      skip_build:
-        description: 'Skip C++ build (use placeholder or downloaded payload)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
 
 env:
   WORKER_URL: 'https://moon-auth-service.moonsal.workers.dev'
@@ -23,7 +12,7 @@ env:
 
 jobs:
   prepare:
-    name: Resolve version + ensure payload exists
+    name: Resolve version + ensure payload
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -36,94 +25,73 @@ jobs:
       - name: Resolve version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Resolved: $VERSION"
 
-      - name: Download previous release payload (if exists)
+      - name: Ensure payload exists
         id: payload
         run: |
-          set -e
           mkdir -p release-artifacts
 
-          # Strategy 1: önceki release asset'ini indir (cache gibi)
-          # Eğer tag v1.X.Y ise — önce yoksa zaten placeholder yeter
-          PREV_TAG="$([ "${{ steps.version.outputs.version }}" != "v1.0.0" ] && echo "yok" || echo "yok")"
-          echo "Previous version not cached — using local or placeholder"
-
-          # Real binary yoksa placeholder oluştur (72-byte PE stub)
+          # Real binary varsa kopyala
           if [ -f "bin/Release/SpCrashReport.dll" ]; then
-            echo "✔ Real local binary found at bin/Release/SpCrashReport.dll"
             cp "bin/Release/SpCrashReport.dll" "release-artifacts/SpCrashReport.dll"
-            echo "has_real_binary=true" >> $GITHUB_OUTPUT
+            echo "has_real_binary=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::No real binary — generating 72-byte test stub (placeholder)"
-            # MZ\x90\x00... DOS/PE magic header + padding
+            echo "::notice::No real binary — placeholder oluşturuluyor"
             python3 -c "
 import sys
-header = b'MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00'
-header += b'\xb8\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00'
-header += b'\x00' * 48
-sys.stdout.buffer.write(header)
+h = b'MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00'
+h += b'\xb8\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00'
+h += b'\x00' * 48
+sys.stdout.buffer.write(h)
 " > release-artifacts/SpCrashReport.dll
-            echo "has_real_binary=false" >> $GITHUB_OUTPUT
+            echo "has_real_binary=false" >> "$GITHUB_OUTPUT"
           fi
 
           SHA=$(sha256sum release-artifacts/SpCrashReport.dll | awk '{print $1}')
           SIZE=$(stat -c %s release-artifacts/SpCrashReport.dll)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "size=$SIZE" >> $GITHUB_OUTPUT
-          echo "==> Payload: $SIZE bytes, sha256=$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "==> $SIZE bytes, sha=$SHA"
 
   build:
     name: Attempt C++ build (best-effort)
     needs: prepare
-    if: ${{ github.event_name == 'push' && github.event.inputs.skip_build != 'true' }}
-    runs-on: windows-latest
     continue-on-error: true
+    runs-on: windows-latest
     steps:
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
       - name: Install Ninja + CMake
+        shell: bash
         run: |
-          choco install ninja -y || exit 1
+          choco install ninja -y || true
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y || true
 
-      - name: Build (best-effort)
+      - name: Build attempt
         id: build
         shell: bash
         run: |
           set +e
-          # Build dependencies qwe/Libraries'a bağlı — runner'da repo yoksa build başarısız olur
-          # Gerçek binary için: deps submodule olarak eklenmeli
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee build.log
           if [ $? -eq 0 ]; then
             cmake --build build --parallel 2>&1 | tee -a build.log
             if [ $? -eq 0 ] && [ -f "bin/Release/SpCrashReport.dll" ]; then
-              echo "build_success=true" >> $GITHUB_OUTPUT
+              echo "build_success=true" >> "$GITHUB_OUTPUT"
               cp "bin/Release/SpCrashReport.dll" "release-artifacts/SpCrashReport.dll"
-              echo "✔ Real binary built and copied"
-              SHA=$(sha256sum "release-artifacts/SpCrashReport.dll" | awk '{print $1}')
-              SIZE=$(stat -c %s "release-artifacts/SpCrashReport.dll")
-              echo "real_sha=$SHA" >> $GITHUB_OUTPUT
-              echo "real_size=$SIZE" >> $GITHUB_OUTPUT
+              echo "✔ Real binary built"
             else
-              echo "build_success=false" >> $GITHUB_OUTPUT
-              echo "::warning::Build başarısız (CMake/MSVC dependency eksik — placeholder kullanılacak)"
+              echo "build_success=false" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "build_success=false" >> $GITHUB_OUTPUT
-            echo "::warning::CMake configure başarısız"
+            echo "build_success=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload build artifacts (if any)
+      - name: Upload real binary (if any)
         if: hashFiles('bin/Release/SpCrashReport.dll') != ''
         uses: actions/upload-artifact@v4
         with:
@@ -131,16 +99,12 @@ sys.stdout.buffer.write(header)
           path: bin/Release/SpCrashReport.dll
           if-no-files-found: ignore
 
-  publish-github:
-    name: Publish GitHub Release + D1 update
+  publish:
+    name: Publish release + D1 update
     needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Update Cloudflare D1 release record
+      - name: Update Cloudflare D1
         env:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -157,15 +121,14 @@ sys.stdout.buffer.write(header)
           API="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query"
           NOW=$(date +%s%3N)
 
-          # 1. Mark previous latest as deprecated
-          echo "==> Marking previous latest deprecated..."
+          # Mark previous latest as deprecated
           curl -fsS -X POST "$API" \
             -H "Authorization: Bearer ${CF_API_TOKEN}" \
             -H "Content-Type: application/json" \
             --data "{\"sql\":\"UPDATE releases SET is_latest=0 WHERE is_latest=1 AND version != ?\",\"params\":[\"$VERSION\"]}" \
             && echo "✔ previous latest deprecated"
 
-          # 2. Insert/update release
+          # Upsert release record
           PAYLOAD=$(jq -n \
             --arg v "$VERSION" \
             --arg bh "$BUILD_HASH" \
@@ -177,21 +140,21 @@ sys.stdout.buffer.write(header)
             --argjson now "$NOW" \
             '{
               "sql": "INSERT INTO releases (version, build_hash, r2_key, github_url, github_owner, github_repo, file_size, sha256, changelog, status, is_latest, min_client_version, created_at, released_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?) ON CONFLICT(version) DO UPDATE SET r2_key=excluded.r2_key, github_url=excluded.github_url, github_owner=excluded.github_owner, github_repo=excluded.github_repo, file_size=excluded.file_size, sha256=excluded.sha256, is_latest=1, released_at=excluded.released_at",
-              "params": [$v, $bh, ("releases/" + $v + "/SpCrashReport.dll"), $ghurl, $gho, $ghr, $size, $sha, "Auto-deployed via release.yml", "active", "1.0.0", $now, $now]
+              "params": [$v, $bh, ("releases/" + $v + "/SpCrashReport.dll"), $ghurl, $gho, $ghr, $size, $sha, "Auto-deployed", "active", "1.0.0", $now, $now]
             }')
 
           RESP=$(curl -fsS -X POST "$API" \
             -H "Authorization: Bearer ${CF_API_TOKEN}" \
             -H "Content-Type: application/json" \
             --data "$PAYLOAD")
-          echo "D1 update: $(echo "$RESP" | jq -c '.success, .errors')"
           if [ "$(echo "$RESP" | jq -r '.success')" != "true" ]; then
-            echo "::error::D1 update failed!"
+            echo "::error::D1 update failed"
+            echo "$RESP" | jq '.'
             exit 1
           fi
           echo "✔ D1 release record upserted"
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release with asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
@@ -203,8 +166,7 @@ sys.stdout.buffer.write(header)
             **SHA256**: `${{ needs.prepare.outputs.sha256 }}`
             **Size**: ${{ needs.prepare.outputs.size }} bytes
 
-            Otomatik olarak GitHub Actions'ta üretildi.
-            Worker `/download/payload` üzerinden indir: `${{ env.GH_REPO_URL }}/releases/download/${{ needs.prepare.outputs.version }}/SpCrashReport.dll`
+            Worker üzerinden indir: ${{ env.GH_REPO_URL }}/releases/download/${{ needs.prepare.outputs.version }}/SpCrashReport.dll
           files: |
             release-artifacts/SpCrashReport.dll
           fail_on_unmatched_files: false
@@ -220,7 +182,7 @@ sys.stdout.buffer.write(header)
           echo "$RESP" | jq '.'
           LATEST=$(echo "$RESP" | jq -r '.data.version')
           if [ "$LATEST" != "${{ needs.prepare.outputs.version }}" ]; then
-            echo "::warning::Worker latest = $LATEST ≠ ${{ needs.prepare.outputs.version }} (D1 eventual consistency)"
+            echo "::warning::Worker = $LATEST, expected = ${{ needs.prepare.outputs.version }}"
           else
             echo "✔ Worker reflects new release $LATEST"
           fi
