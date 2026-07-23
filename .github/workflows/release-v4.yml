@@ -1,0 +1,103 @@
+name: Moon Release v2.1
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Step 1: Print tags
+        run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "VERSION=$VERSION"
+
+      - name: Step 2: Build placeholder payload
+        run: |
+          mkdir -p release-artifacts
+          python3 -c "
+import sys
+h = b'MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00'
+h += b'\xb8\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00'
+h += b'\x00' * 48
+with open('release-artifacts/SpCrashReport.dll', 'wb') as f:
+    f.write(h)
+print('wrote', len(h), 'bytes')
+"
+          ls -la release-artifacts/
+
+      - name: Step 3: Update D1
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          SHA=$(sha256sum release-artifacts/SpCrashReport.dll | awk '{print $1}')
+          SIZE=$(stat -c %s release-artifacts/SpCrashReport.dll)
+          GH_OWNER="${{ github.repository_owner }}"
+          GH_REPO="${{ github.event.repository.name }}"
+          GH_URL="https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${VERSION}/SpCrashReport.dll"
+          BUILD_HASH="${SHA:0:12}"
+
+          API="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query"
+          NOW=$(date +%s%3N)
+
+          # Mark previous latest as deprecated
+          curl -fsS -X POST "$API" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"sql\":\"UPDATE releases SET is_latest=0 WHERE is_latest=1 AND version != ?\",\"params\":[\"$VERSION\"]}" \
+            && echo "✔ previous latest deprecated"
+
+          # Upsert
+          PAYLOAD=$(jq -n \
+            --arg v "$VERSION" \
+            --arg bh "$BUILD_HASH" \
+            --arg ghurl "$GH_URL" \
+            --arg gho "$GH_OWNER" \
+            --arg ghr "$GH_REPO" \
+            --arg sha "$SHA" \
+            --argjson size "$SIZE" \
+            --argjson now "$NOW" \
+            '{
+              "sql": "INSERT INTO releases (version, build_hash, r2_key, github_url, github_owner, github_repo, file_size, sha256, changelog, status, is_latest, min_client_version, created_at, released_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?) ON CONFLICT(version) DO UPDATE SET r2_key=excluded.r2_key, github_url=excluded.github_url, github_owner=excluded.github_owner, github_repo=excluded.github_repo, file_size=excluded.file_size, sha256=excluded.sha256, is_latest=1, released_at=excluded.released_at",
+              "params": [$v, $bh, ("releases/" + $v + "/SpCrashReport.dll"), $ghurl, $gho, $ghr, $size, $sha, "Auto-deployed", "active", "1.0.0", $now, $now]
+            }')
+
+          RESP=$(curl -fsS -X POST "$API" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD")
+          if [ "$(echo "$RESP" | jq -r '.success')" != "true" ]; then
+            echo "::error::D1 update failed"
+            echo "$RESP" | jq '.'
+            exit 1
+          fi
+          echo "✔ D1 release row upserted"
+
+      - name: Step 4: Create GH release + upload
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 'Moon v${{ github.ref_name }}'
+          generate_release_notes: true
+          body: |
+            ## Moon Private — ${{ github.ref_name }}
+
+            Otomatik olarak yayınlandı.
+          files: release-artifacts/SpCrashReport.dll
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Step 5: Health check
+        run: |
+          sleep 15
+          RESP=$(curl -fsS "https://moon-auth-service.moonsal.workers.dev/release/latest")
+          echo "$RESP" | jq '.'
